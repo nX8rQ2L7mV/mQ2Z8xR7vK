@@ -1,6 +1,6 @@
 setDefaultTab("Main")
 BossFarm = BossFarm or {}
-BossFarm.VERSAO = "1.3"
+BossFarm.VERSAO = "1.4"
 
 if bossFarmWindow then
     bossFarmWindow:destroy()
@@ -9,6 +9,7 @@ end
 
 BossFarm.ativo = macro(1000, "Boss Farm", function()
 end)
+if BossFarm.ativo.switch then BossFarm.ativo.switch:hide() end
 
 BossFarm.currentBoss = nil
 BossFarm.entrou = false
