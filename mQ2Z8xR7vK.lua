@@ -1,6 +1,6 @@
 setDefaultTab("Main")
 BossFarm = BossFarm or {}
-BossFarm.VERSAO = "2.1"
+BossFarm.VERSAO = "2.2"
 
 if bossFarmWindow then
     bossFarmWindow:destroy()
@@ -639,6 +639,8 @@ function BossFarm.salvarHorarios(h1, h2, h3, labelDestino, labelPosNpc)
         end
     end
 
+    local antigos = storage.BossFarmHorario.horariosConfigurados or {}
+    local horarioAntigo = {antigos[1], antigos[2], antigos[3]}
     storage.BossFarmHorario.horariosConfigurados = {h1, h2, h3}
 
     for i = 1, 3 do
@@ -654,6 +656,16 @@ function BossFarm.salvarHorarios(h1, h2, h3, labelDestino, labelPosNpc)
     storage.BossFarmHorario.labelConfigurado = label
     storage.BossFarmHorario.labelPosNpc = labelPos
     local cfg = storage.BossFarmHorario
+    local idx = cfg.indiceRotacaoAtual
+    if cfg.rotacaoEmAndamento and idx and cfg.horariosConfigurados[idx] ~= horarioAntigo[idx] then
+        cfg.rotacaoEmAndamento = false
+        cfg.horaRotacaoAtual = nil
+        cfg.indiceRotacaoAtual = nil
+        if cfg.horariosUsados then cfg.horariosUsados[idx] = false end
+        if cfg.usadoEm then cfg.usadoEm["s" .. idx] = nil end
+        BossFarm.passeAte = 0
+        BossFarm.logEvento("Horario da Rotacao " .. idx .. " mudou: rotacao em andamento cancelada e passe apagado.")
+    end
     if not cfg.rotacaoEmAndamento then
         cfg.salvoEm = os.time()
         for i = 1, 3 do
@@ -1443,6 +1455,7 @@ function BossFarm.resetGeral()
     BossFarm.jaDerrotadoDetectado = false
     BossFarm.lastLabel = nil
     BossFarm.dentroDaSala = nil
+    BossFarm.passeAte = 0
     storage.BossAntiTrapTPEnabled = false
     BossFarm.estado = "AGUARDANDO"
     BossFarm.ultimoEvento = "-"
