@@ -1,6 +1,6 @@
 setDefaultTab("Main")
 BossFarm = BossFarm or {}
-BossFarm.VERSAO = "1.9"
+BossFarm.VERSAO = "2.0"
 
 if bossFarmWindow then
     bossFarmWindow:destroy()
@@ -58,13 +58,14 @@ storage.BossFarmVipExpiration = storage.BossFarmVipExpiration or 0
 
 storage.BossFarmModeCount = storage.BossFarmModeCount or "3X"
 storage.BossFarmExecutionMode = storage.BossFarmExecutionMode or "SCHEDULE"
+storage.BossFarmAvisoNome = storage.BossFarmAvisoNome or false
 storage.BossAntiTrapTPEnabled = false
 
 -- CONFIG POR PERSONAGEM: arquivo /BossFarm/<personagem>.json (fora da pasta bot e do storage do vBot).
 -- O storage do vBot e por config e pode falhar ao salvar (ai apos SS/relog voltava horario vazio e rotacoes
 -- desativadas). O arquivo e lido ao carregar o script e tem prioridade; e regravado a cada 1 min se mudar e no SALVAR.
 BossFarm.CAMPOS_HORARIO_ARQ = {"horariosConfigurados", "rotacoesAtivas", "ativasSalvas", "labelConfigurado", "labelPosNpc"}
-BossFarm.CAMPOS_STORAGE_ARQ = {"BossFarmRotationType", "BossFarmModeCount", "BossFarmExecutionMode", "BossFarmCustomList"}
+BossFarm.CAMPOS_STORAGE_ARQ = {"BossFarmRotationType", "BossFarmModeCount", "BossFarmExecutionMode", "BossFarmCustomList", "BossFarmAvisoNome"}
 function BossFarm.arquivoConfig()
     local ok, nome = pcall(function() return player:getName() end)
     if not ok or type(nome) ~= "string" or nome == "" then return nil end
@@ -944,7 +945,7 @@ end
 
 BossFarm.textoNome = ""
 function BossFarm.textoAcimaDoNome()
-    if BossFarm.ativo.isOff() then return "" end
+    if BossFarm.ativo.isOff() or not storage.BossFarmAvisoNome then return "" end
     local avisos = {}
     local vip = storage.BossFarmVipExpiration or 0
     if vip > 0 then
@@ -2246,6 +2247,23 @@ BossFarmWindow < UIWindow
         width: 118
         color: #00FF00
 
+    Panel
+      height: 18
+      margin-top: 2
+      layout:
+        type: horizontalBox
+        spacing: 0
+      UILabel
+        text: AVISO NO NOME:
+        width: 140
+        color: #F0FFF0
+        font: verdana-11px-rounded
+      BossFarmBtn
+        id: toggleAvisoNome
+        text: DESATIVADO
+        width: 118
+        color: #B03060
+
     BossFarmBtn
       id: editPartyList
       text: SETUP AUTO PARTY
@@ -2802,6 +2820,14 @@ if bossFarmWindow.toggleChase then
     end
 end
 
+if bossFarmWindow.toggleAvisoNome then
+    bossFarmWindow.toggleAvisoNome.onClick = function()
+        storage.BossFarmAvisoNome = not storage.BossFarmAvisoNome
+        BossFarm.gravarArquivo()
+        BossFarm.atualizarPainel()
+    end
+end
+
 if bossFarmWindow.toggleParty then
     bossFarmWindow.toggleParty.onClick = function()
         storage.autoPartyEnabled = not storage.autoPartyEnabled
@@ -3110,6 +3136,16 @@ function BossFarm.atualizarPainel()
         else
             bossFarmWindow.toggleChase:setText("DESATIVADO")
             bossFarmWindow.toggleChase:setColor("#B03060")
+        end
+    end
+
+    if bossFarmWindow.toggleAvisoNome then
+        if storage.BossFarmAvisoNome then
+            bossFarmWindow.toggleAvisoNome:setText("ATIVO")
+            bossFarmWindow.toggleAvisoNome:setColor("#00FA9A")
+        else
+            bossFarmWindow.toggleAvisoNome:setText("DESATIVADO")
+            bossFarmWindow.toggleAvisoNome:setColor("#B03060")
         end
     end
 
