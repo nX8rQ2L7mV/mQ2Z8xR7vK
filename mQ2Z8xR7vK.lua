@@ -1,6 +1,6 @@
 setDefaultTab("Main")
 BossFarm = BossFarm or {}
-BossFarm.VERSAO = "2.0"
+BossFarm.VERSAO = "2.1"
 
 if bossFarmWindow then
     bossFarmWindow:destroy()
@@ -184,6 +184,22 @@ function BossFarm.irPara(label)
     CaveBot.gotoLabel(label)
 end
 
+BossFarm.PASSE_SEG = 600
+BossFarm.passeAte = 0
+
+function BossFarm.darPasse()
+    BossFarm.passeAte = os.time() + BossFarm.PASSE_SEG
+end
+
+function BossFarm.travaFarmboss()
+    if os.time() <= (BossFarm.passeAte or 0) then return true end
+    local volta = storage.BossFarmHorario.labelPosNpc or "saida cave"
+    BossFarm.estado = "FARMBOSS SEM PASSE"
+    BossFarm.logEvento("Farmboss sem passe! Voltando para: " .. volta)
+    BossFarm.irPara(volta)
+    return "retry"
+end
+
 macro(500, function()
     if BossFarm.ativo.isOff() then return end
     for _, spec in ipairs(getSpectators()) do
@@ -216,6 +232,7 @@ macro(1000, function()
     local inBossArea = (myPos.z == 3 and myPos.x >= 7610 and myPos.x <= 7700 and myPos.y >= 1020 and myPos.y <= 1084)
 
     if inBossArea then
+        BossFarm.passeAte = 0
 
         if not storage.BossAntiTrapTPEnabled then
             storage.BossAntiTrapTPEnabled = true
@@ -729,6 +746,7 @@ function BossFarm.verificarHorario()
             local destino = cfg.labelConfigurado or "farmboss"
             BossFarm.estado = "RETOMANDO ROTACAO " .. tostring(cfg.indiceRotacaoAtual or "")
             BossFarm.logEvento("Checkin: a rotacao ainda nao saiu da cave. Indo de novo para: " .. destino)
+            BossFarm.darPasse()
             BossFarm.irPara(destino)
             return "retry"
         end
@@ -813,6 +831,7 @@ function BossFarm.verificarHorario()
 
             local destino = cfg.labelConfigurado or "farmboss"
             BossFarm.logEvento("Engatando rotacao " .. slotValido .. ". Indo para: " .. destino)
+            BossFarm.darPasse()
             BossFarm.irPara(destino)
             return "retry"
         else
@@ -872,6 +891,7 @@ function BossFarm.verificarHorario()
 
                         local destino = cfg.labelConfigurado or "farmboss"
                         BossFarm.logEvento("Horario atingido! Iniciando e indo para a label: " .. destino)
+                        BossFarm.darPasse()
                         BossFarm.irPara(destino)
                         return "retry"
                     end
