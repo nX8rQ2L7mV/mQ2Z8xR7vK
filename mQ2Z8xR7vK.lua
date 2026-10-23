@@ -191,12 +191,29 @@ function BossFarm.darPasse()
     BossFarm.passeAte = os.time() + BossFarm.PASSE_SEG
 end
 
+function BossFarm.primeiraLabel()
+    local lista = CaveBot.actionList
+    if not lista then return nil end
+    for _, child in ipairs(lista:getChildren()) do
+        if child.action == "label" then return child.value end
+    end
+    return nil
+end
+
 function BossFarm.travaFarmboss()
     if os.time() <= (BossFarm.passeAte or 0) then return true end
-    local volta = storage.BossFarmHorario.labelPosNpc or "saida cave"
     BossFarm.estado = "FARMBOSS SEM PASSE"
-    BossFarm.logEvento("Farmboss sem passe! Voltando para: " .. volta)
-    BossFarm.irPara(volta)
+    local volta = BossFarm.primeiraLabel()
+    if volta and CaveBot.gotoLabel(volta) then
+        BossFarm.lastLabel = volta
+        BossFarm.logEvento("Farmboss sem passe! Voltando para a 1a label: " .. volta)
+        return "retry"
+    end
+    if os.time() - (BossFarm.lastTravaWarn or 0) >= 5 then
+        BossFarm.lastTravaWarn = os.time()
+        BossFarm.logEvento("Farmboss sem passe! Nenhuma label achada na CaveBot, parado antes do TP.")
+    end
+    delay(1000)
     return "retry"
 end
 
