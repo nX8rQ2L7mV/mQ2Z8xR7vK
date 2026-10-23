@@ -2584,6 +2584,7 @@ bossFarmWindow.toggleModeCount = bossFarmWindow:recursiveGetChildById("toggleMod
 bossFarmWindow.toggleChase = bossFarmWindow:recursiveGetChildById("toggleChase")
 bossFarmWindow.toggleParty = bossFarmWindow:recursiveGetChildById("toggleParty")
 bossFarmWindow.toggleAntiTrap = bossFarmWindow:recursiveGetChildById("toggleAntiTrap")
+bossFarmWindow.toggleAvisoNome = bossFarmWindow:recursiveGetChildById("toggleAvisoNome")
 bossFarmWindow.editPartyList = bossFarmWindow:recursiveGetChildById("editPartyList")
 
 bossFarmWindow.btnRot1 = bossFarmWindow:recursiveGetChildById("btnRot1")
