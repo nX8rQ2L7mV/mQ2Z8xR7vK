@@ -1,6 +1,6 @@
 setDefaultTab("Main")
 BossFarm = BossFarm or {}
-BossFarm.VERSAO = "2.2"
+BossFarm.VERSAO = "2.4"
 
 if bossFarmWindow then
     bossFarmWindow:destroy()
@@ -611,6 +611,7 @@ function BossFarm.iniciarNovaRotacao()
     BossFarm.NPC.ativo = false
     BossFarm.NPC.concluido = false
     BossFarm.NPC.etapa = 0
+    BossFarm.NPC.tentativa = 0
     BossFarm.logEvento("Nova cacada iniciada! Memoria da Rotacao resetada.")
     return true
 end
@@ -755,6 +756,18 @@ function BossFarm.verificarHorario()
     BossFarm.inicializarHorario()
     local cfg = storage.BossFarmHorario
     if not BossFarm.ativo or BossFarm.ativo.isOff() then return true end
+    if cfg.rotacaoEmAndamento and storage.BossFarmExecutionMode == "LOOP" then
+        cfg.rotacaoEmAndamento = false
+        cfg.horaRotacaoAtual = nil
+        cfg.indiceRotacaoAtual = nil
+        cfg.janelasPerdidas = cfg.janelasPerdidas or {false, false, false}
+        cfg.janelasPerdidas[1] = true
+        BossFarm.marcarSlot(1)
+        BossFarm.passeAte = 0
+        BossFarm.estado = "ROTACAO 1 PERDIDA (" .. (cfg.rotacoesFeitas or 0) .. "/3)"
+        BossFarm.logEvento("Checkin: voltou para a hunt sem terminar o loop (morte/queda). Rotacao 1 PERDIDA, nao puxa mais hoje.")
+        return true
+    end
     if cfg.rotacaoEmAndamento then
         local velha = not cfg.inicioRotacaoTs
             or (cfg.dataRotacao and cfg.dataRotacao ~= BossFarm.dataDoDia())
@@ -1560,6 +1573,7 @@ function BossFarm.iniciarAutoNPC()
     BossFarm.NPC.concluido = false
     BossFarm.NPC.queue = {}
     BossFarm.NPC.timer = os.time()
+    BossFarm.NPC.respondeu = false
 
     for i = 1, 15 do
         if storage.BossFarmNPCList[i] then
@@ -1579,8 +1593,38 @@ function BossFarm.acharNpc()
     return nil
 end
 
+onTalk(function(name, level, mode, text)
+    if BossFarm.NPC.ativo and tostring(name or ""):lower() == BossFarm.NPC_NOME:lower() then
+        BossFarm.NPC.respondeu = true
+    end
+end)
+
+function BossFarm.falhaNpc(motivo)
+    BossFarm.NPC.ativo = false
+    BossFarm.NPC.concluido = false
+    BossFarm.NPC.etapa = 0
+    if g_game.getFollowingCreature() then g_game.cancelFollow() end
+    BossFarm.NPC.tentativa = (BossFarm.NPC.tentativa or 0) + 1
+    if BossFarm.NPC.tentativa < 3 then
+        BossFarm.estado = "NPC - TENTATIVA " .. (BossFarm.NPC.tentativa + 1) .. "/3"
+        BossFarm.logEvento("NPC: " .. motivo .. " Voltando na label npc (tentativa " .. (BossFarm.NPC.tentativa + 1) .. "/3).")
+        BossFarm.irPara("npc")
+        return
+    end
+    BossFarm.NPC.tentativa = 0
+    local cfg = storage.BossFarmHorario
+    cfg.rotacaoEmAndamento = false
+    cfg.horaRotacaoAtual = nil
+    cfg.indiceRotacaoAtual = nil
+    local labelSaida = cfg.labelPosNpc or "saida cave"
+    BossFarm.estado = "NPC FALHOU - VOLTA NAO CONTADA"
+    BossFarm.logEvento("NPC: " .. motivo .. " 3 tentativas sem falar com a " .. BossFarm.NPC_NOME .. ". Volta NAO contada. Indo para: " .. labelSaida)
+    BossFarm.irPara(labelSaida)
+end
+
 function BossFarm.processarNPC()
     if BossFarm.NPC.concluido then return end
+    local loop = BossFarm.NPC.modo == "AUTO" and storage.BossFarmExecutionMode == "LOOP"
 
     if BossFarm.NPC.etapa == 0 then
         local npc = BossFarm.acharNpc()
@@ -1596,6 +1640,9 @@ function BossFarm.processarNPC()
         elseif esperando < 5 then
             BossFarm.estado = "NPC - PROCURANDO " .. BossFarm.NPC_NOME:upper()
             return
+        elseif loop then
+            BossFarm.falhaNpc(BossFarm.NPC_NOME .. " nao encontrada na tela.")
+            return
         else
             BossFarm.logEvento("NPC: " .. BossFarm.NPC_NOME .. " nao apareceu na tela. Falando hi assim mesmo.")
         end
@@ -1608,6 +1655,14 @@ function BossFarm.processarNPC()
     end
 
     if BossFarm.NPC.etapa == 1 then
+        if loop and not BossFarm.NPC.respondeu then
+            if os.time() - BossFarm.NPC.timer < 5 then
+                BossFarm.estado = "NPC - ESPERANDO RESPOSTA"
+            else
+                BossFarm.falhaNpc(BossFarm.NPC_NOME .. " nao respondeu o hi.")
+            end
+            return
+        end
         if os.time() - BossFarm.NPC.timer >= 1 then
             if #BossFarm.NPC.queue > 0 then
                 local bossId = BossFarm.NPC.queue[1]
@@ -1624,6 +1679,7 @@ function BossFarm.processarNPC()
 
                 if BossFarm.NPC.modo == "AUTO" then
 
+                    BossFarm.NPC.tentativa = 0
                     if BossFarm.finalizarRotacao then BossFarm.finalizarRotacao() end
 
                     local cfg = storage.BossFarmHorario
@@ -3233,6 +3289,14 @@ function BossFarm.atualizarPainel()
     BossFarm.inicializarHorario()
     local cfgHorarios = storage.BossFarmHorario.horariosConfigurados or BossFarm.HorariosPadrao
 
+    local horarioLivre = storage.BossFarmExecutionMode ~= "LOOP"
+    for _, campo in ipairs({bossFarmWindow.hour2, bossFarmWindow.hour3}) do
+        if campo and campo:isEnabled() ~= horarioLivre then
+            campo:setEditable(horarioLivre)
+            campo:setEnabled(horarioLivre)
+        end
+    end
+
     if not BossFarm.painelHorariosCarregados and bossFarmWindow.hour1 then
         bossFarmWindow.hour1:setText(cfgHorarios[1] or "")
         bossFarmWindow.hour2:setText(cfgHorarios[2] or "")
@@ -3298,15 +3362,18 @@ function BossFarm.atualizarPainel()
         local loop = storage.BossFarmExecutionMode == "LOOP"
         local feitas = cfg.rotacoesFeitas or 0
 
-        if loop and feitas >= i then
+        if loop and i >= 2 then
+            texto = "DESATIVADA"
+            cor = "#B03060"
+        elseif loop and feitas >= 3 then
             texto = "CONCLUIDA"
             cor = "#00FA9A"
-        elseif loop and cfg.rotacaoEmAndamento and feitas + 1 == i then
-            texto = "EM ROTACAO"
+        elseif loop and cfg.rotacaoEmAndamento then
+            texto = (feitas + 1) .. "/3"
             cor = "#FFFF00"
-        elseif loop and i >= 2 then
-            texto = "PENDENTE"
-            cor = "#AAAAAA"
+        elseif loop and feitas > 0 then
+            texto = feitas .. "/3" .. ((cfg.janelasPerdidas and cfg.janelasPerdidas[1]) and " PERDIDA" or "")
+            cor = "#FF8C00"
         elseif BossFarm.modoHorarioUnico() and i >= 2 then
             texto = "NAO USADA"
             cor = "#555555"
