@@ -1,6 +1,6 @@
 setDefaultTab("Main")
 BossFarm = BossFarm or {}
-BossFarm.VERSAO = "2.4"
+BossFarm.VERSAO = "2.5"
 
 if bossFarmWindow then
     bossFarmWindow:destroy()
