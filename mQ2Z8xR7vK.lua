@@ -329,6 +329,128 @@ function BossFarm.aguardarMinuto27()
     return "retry"
 end
 
+-- Bank reader embedded in BossFarm. Reuses the client's Bank session and receiver.
+-- It neither registers opcode 236 again nor performs financial operations.
+function BossFarm.contarHarvestableBank()
+    local native = modules and modules.game_bank
+    local protocol = g_game.getProtocolGame()
+    if not native or not protocol or not g_game.isOnline() then return nil end
+
+    local bridge = native.bossFarmBalanceReader
+    if not bridge then
+        bridge = {serial = 0}
+        native.bossFarmBalanceReader = bridge
+
+        local function validDecimal(value)
+            return type(value) == "string" and #value <= 20 and value:match("^%d+$") ~= nil
+        end
+        local function clean(value)
+            value = value:gsub("^0+", "")
+            return value == "" and "0" or value
+        end
+        local function older(a, b)
+            a, b = clean(a), clean(b)
+            if #a ~= #b then return #a < #b end
+            return a < b
+        end
+        local function add(a, b)
+            local out, carry = {}, 0
+            for i = 1, math.max(#a, #b) do
+                local n = (tonumber(a:sub(-i, -i)) or 0) + (tonumber(b:sub(-i, -i)) or 0) + carry
+                table.insert(out, 1, tostring(n % 10))
+                carry = math.floor(n / 10)
+            end
+            if carry > 0 then table.insert(out, 1, tostring(carry)) end
+            return clean(table.concat(out))
+        end
+
+        function bridge.receive(p, opcode, buffer)
+            if p ~= bridge.protocol or opcode ~= 236 or type(buffer) ~= "string" or #buffer > 12000 then return end
+            local ok, packet = pcall(json.decode, buffer)
+            if not ok or type(packet) ~= "table" or packet.v ~= 1 then return end
+            if packet.a == "error" then
+                if packet.code == "session" and packet.rid == bridge.requestId then
+                    bridge.session, bridge.total, bridge.updated = nil, nil, nil
+                    bridge.requestId = nil
+                end
+                return
+            end
+            if packet.a ~= "hello" and packet.a ~= "state" and packet.a ~= "operation" and packet.a ~= "status" then return end
+            local session = packet.session
+            if type(session) ~= "string" or #session > 48 or not session:match("^[%w_-]+$") then return end
+            if packet.a == "hello" then
+                if bridge.session ~= session then bridge.total, bridge.revision, bridge.updated = nil, nil, nil end
+                bridge.session = session
+            elseif bridge.session and session ~= bridge.session then
+                return
+            end
+            local state = packet.state
+            if type(state) == "table" and state.ready == false then
+                bridge.total, bridge.updated, bridge.revision = nil, nil, nil
+                return
+            end
+            if type(state) ~= "table" or state.ready ~= true or state.crystalCid ~= 13201
+                or not validDecimal(state.crystal) or not validDecimal(state.cashCrystal)
+                or not validDecimal(state.revision) then return end
+            if bridge.revision and older(state.revision, bridge.revision) then return end
+            bridge.session = session
+            local nuggets = add(state.crystal, state.cashCrystal)
+            local crystals = #nuggets > 2 and nuggets:sub(1, -3) or "0"
+            bridge.total = tonumber(crystals)
+            bridge.revision, bridge.updated = state.revision, os.time()
+            if packet.rid == bridge.requestId then bridge.requestId = nil end
+        end
+
+        function bridge.bind(p)
+            if bridge.protocol == p then return true end
+            local core = modules and modules.corelib
+            local connector = connect or native.connect or (core and core.connect)
+            local disconnector = disconnect or native.disconnect or (core and core.disconnect)
+            if type(connector) ~= "function" then return false end
+            if bridge.protocol and bridge.listener and type(disconnector) == "function" then
+                pcall(disconnector, bridge.protocol, {onExtendedOpcode = bridge.listener})
+            end
+            bridge.protocol = p
+            bridge.session, bridge.total, bridge.updated, bridge.revision = nil, nil, nil, nil
+            bridge.lastRead, bridge.requestId = nil, nil
+            bridge.listener = function(receiver, opcode, buffer)
+                pcall(bridge.receive, receiver, opcode, buffer)
+            end
+            local ok = pcall(connector, p, {onExtendedOpcode = bridge.listener})
+            if not ok then bridge.protocol = nil end
+            return ok
+        end
+
+        function bridge.read()
+            local now = os.time()
+            if not bridge.lastRead or now < bridge.lastRead or now - bridge.lastRead >= 5 then
+                bridge.lastRead = now
+                if bridge.session then
+                    bridge.serial = bridge.serial + 1
+                    bridge.requestId = "BF_" .. tostring(now) .. "_" .. tostring(bridge.serial)
+                    local payload = {v = 1, a = "state", session = bridge.session, rid = bridge.requestId}
+                    pcall(function() bridge.protocol:sendExtendedOpcode(236, json.encode(payload)) end)
+                elseif type(native.show) == "function" and type(native.hide) == "function" then
+                    -- Bootstrap through the native module so its private session stays valid.
+                    -- Restore the previous visibility immediately, before the next render frame.
+                    local root = g_ui.getRootWidget()
+                    local window = root and root:getChildById("bankWindow")
+                    local visible = window and window:isVisible()
+                    pcall(native.show)
+                    if not visible then pcall(native.hide) end
+                end
+            end
+            if bridge.session and bridge.updated and now >= bridge.updated and now - bridge.updated <= 10 then
+                return bridge.total
+            end
+            return nil
+        end
+    end
+
+    if not bridge.bind(protocol) then return nil end
+    return bridge.read()
+end
+
 function BossFarm.countItem(id)
     local count = 0
     for _, container in pairs(getContainers()) do
@@ -337,6 +459,16 @@ function BossFarm.countItem(id)
                 count = count + item:getCount()
             end
         end
+    end
+    if id == 13201 then
+        local ok, total = pcall(BossFarm.contarHarvestableBank)
+        if ok and type(total) == "number" and total >= 0 then
+            -- O servidor ja soma mochila + banco. Nao somar a mochila duas vezes.
+            return math.max(count, total)
+        end
+        -- Mochila suficiente continua funcionando mesmo enquanto o Bank consulta.
+        local precisa = BossFarm.harvNecessario and BossFarm.harvNecessario() or 150
+        if count < precisa then return nil end
     end
     return count
 end
@@ -858,7 +990,12 @@ function BossFarm.verificarHorario()
             end
 
             local hwCount = BossFarm.countItem(13201)
-            if hwCount < qtdNecessaria and not BossFarm.modoGratis() then
+            if hwCount == nil and not BossFarm.modoGratis() then
+                BossFarm.estado = "AGUARDANDO SALDO DO BANK"
+                delay(1000)
+                return true
+            end
+            if hwCount ~= nil and hwCount < qtdNecessaria and not BossFarm.modoGratis() then
                 BossFarm.estado = "FALTA HARVESTABLE! (" .. hwCount .. "/" .. qtdNecessaria .. ")"
                 if os.time() - (BossFarm.lastHwWarn or 0) >= 3 then
                     BossFarm.logEvento("ERRO: Rotacao travada! Faltam Harvestables (" .. hwCount .. "/" .. qtdNecessaria .. ")")
@@ -918,6 +1055,11 @@ function BossFarm.verificarHorario()
                         end
 
                         local hwCount = BossFarm.countItem(13201)
+                        if hwCount == nil then
+                            BossFarm.estado = "AGUARDANDO SALDO DO BANK"
+                            delay(1000)
+                            return true
+                        end
                         if hwCount < qtdNecessaria then
                             BossFarm.estado = "FALTA HARVESTABLE! (" .. hwCount .. "/" .. qtdNecessaria .. ")"
                             if os.time() - (BossFarm.lastHwWarn or 0) >= 3 then
@@ -1020,7 +1162,7 @@ function BossFarm.textoAcimaDoNome()
     end
     if not BossFarm.modoGratis() then
         local tem, precisa = BossFarm.countItem(13201), BossFarm.harvNecessario()
-        if tem < precisa then
+        if tem ~= nil and tem < precisa then
             table.insert(avisos, "FALTA HARVESTABLE " .. tem .. "/" .. precisa)
         end
     end
@@ -1031,12 +1173,29 @@ function BossFarm.mostrarAcimaDoNome(texto)
     pcall(function() player:setText(texto, "#FF4040") end)
 end
 
-macro(1000, function()
+function BossFarm.limparAvisoNome()
+    local ok, visivel = pcall(function() return player:getText() end)
+    if ok and type(visivel) == "string" then
+        local nosso = (BossFarm.textoNome ~= "" and visivel == BossFarm.textoNome)
+            or visivel:find("FALTA HARVESTABLE", 1, true)
+            or visivel:find("SEM VIP", 1, true)
+            or visivel:match("VIP %d+ DIAS %(PRECISA 10%)")
+        if nosso then BossFarm.mostrarAcimaDoNome("") end
+    elseif BossFarm.textoNome ~= "" then
+        BossFarm.mostrarAcimaDoNome("")
+    end
+end
+
+function BossFarm.atualizarAvisoNome()
     local ok, texto = pcall(BossFarm.textoAcimaDoNome)
     if not ok then texto = "" end
-    if texto == "" and BossFarm.textoNome ~= "" then BossFarm.mostrarAcimaDoNome("") end
+    if texto == "" then BossFarm.limparAvisoNome() end
     BossFarm.textoNome = texto
-end)
+end
+
+-- O texto do Creature persiste entre recargas, mesmo quando textoNome foi zerado.
+BossFarm.limparAvisoNome()
+macro(1000, BossFarm.atualizarAvisoNome)
 
 macro(100, function()
     if BossFarm.textoNome ~= "" then BossFarm.mostrarAcimaDoNome(BossFarm.textoNome) end
@@ -1672,6 +1831,14 @@ function BossFarm.processarNPC()
                 BossFarm.NPC.etapa = 2
                 BossFarm.NPC.timer = os.time()
             else
+                local loopHarvestableCount
+                if loop and (storage.BossFarmHorario.rotacoesFeitas or 0) < 2 then
+                    loopHarvestableCount = BossFarm.countItem(13201)
+                    if loopHarvestableCount == nil then
+                        BossFarm.estado = "AGUARDANDO SALDO DO BANK"
+                        return
+                    end
+                end
                 BossFarm.NPC.ativo = false
                 BossFarm.NPC.concluido = true
                 BossFarm.estado = "LIMPEZA CONCLUIDA"
@@ -1693,7 +1860,7 @@ function BossFarm.processarNPC()
                             qtdNecessaria = countAtivos * 10
                         end
 
-                        if BossFarm.countItem(13201) < qtdNecessaria then
+                        if loopHarvestableCount < qtdNecessaria then
                             local labelSaida = cfg.labelPosNpc or "saida cave"
                             BossFarm.logEvento("Loop Abortado! Sem Harvestables. Indo pra saida: " .. labelSaida)
                             BossFarm.irPara(labelSaida)
@@ -3152,7 +3319,7 @@ function BossFarm.atualizarPainel()
         end
 
         local hw = BossFarm.cachedHarvestableCount
-        bossFarmWindow.harvestableCount:setText(tostring(hw))
+        bossFarmWindow.harvestableCount:setText(hw == nil and "..." or tostring(hw))
 
         local qtdNecessaria = 150
         if storage.BossFarmRotationType == "9BOSS" then
@@ -3165,7 +3332,9 @@ function BossFarm.atualizarPainel()
             qtdNecessaria = countAtivos * 10
         end
 
-        if hw < qtdNecessaria then
+        if hw == nil then
+            bossFarmWindow.harvestableCount:setColor("#FFFF00")
+        elseif hw < qtdNecessaria then
             bossFarmWindow.harvestableCount:setColor("#FF3333")
         else
             bossFarmWindow.harvestableCount:setColor("#00FA9A")
