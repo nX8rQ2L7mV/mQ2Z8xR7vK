@@ -1,6 +1,6 @@
 setDefaultTab("Main")
 BossFarm = BossFarm or {}
-BossFarm.VERSAO = "2.5"
+BossFarm.VERSAO = "2.6"
 
 if bossFarmWindow then
     bossFarmWindow:destroy()
@@ -305,8 +305,88 @@ macro(1000, function()
     end
 end)
 
+function BossFarm.contarTime()
+    local party = storage.autoParty or {}
+    local meuNome = BossFarm.normalizarNomePlayer(player:getName())
+    local nomes, vistos = {}, {}
+    local function adicionar(nome)
+        nome = BossFarm.normalizarNomePlayer(nome)
+        local chave = nome:lower()
+        if nome ~= "" and chave ~= "leader" and not vistos[chave] and not BossFarm.nomePlayerIgual(nome, meuNome) then
+            vistos[chave] = true
+            table.insert(nomes, nome)
+        end
+    end
+    adicionar(party.leaderName)
+    for _, nome in ipairs(party.autoPartyList or {}) do adicionar(nome) end
+    if #nomes == 0 then return 0, 0 end
+
+    local naParty = (player:getShield() or 0) >= 3
+    local juntos = 0
+    for _, nome in ipairs(nomes) do
+        for _, spec in ipairs(getSpectators()) do
+            if spec:isPlayer() and BossFarm.nomePlayerIgual(spec:getName(), nome) then
+                if naParty and (spec:getShield() or 0) >= 3 then juntos = juntos + 1 end
+                break
+            end
+        end
+    end
+    return juntos, #nomes
+end
+
+BossFarm.timerNome = ""
+function BossFarm.mostrarTimerNome(texto)
+    if BossFarm.timerNome == texto then return end
+    BossFarm.timerNome = texto
+    pcall(function()
+        if texto == "" then
+            if player.clearTitle then player:clearTitle() else player:setTitle("", "verdana-11px-rounded", "#FFFF00") end
+        else
+            player:setTitle(texto, "verdana-11px-rounded", "#FFFF00")
+        end
+    end)
+end
+
+macro(1000, function()
+    if BossFarm.timerNome ~= "" and os.time() - (BossFarm.esperaTimeUltima or 0) > 3 then
+        BossFarm.mostrarTimerNome("")
+    end
+end)
+
+function BossFarm.aguardarTime()
+    local minutos = tonumber((storage.autoParty or {}).esperaTime) or 0
+    if minutos <= 0 then return true end
+    local juntos, total = BossFarm.contarTime()
+    if total == 0 then return true end
+
+    if os.time() - (BossFarm.esperaTimeUltima or 0) > 10 then BossFarm.esperaTimeDesde = nil end
+    BossFarm.esperaTimeUltima = os.time()
+    BossFarm.esperaTimeDesde = BossFarm.esperaTimeDesde or os.time()
+    local passou = os.time() - BossFarm.esperaTimeDesde
+    if juntos >= total then
+        BossFarm.esperaTimeDesde = nil
+        BossFarm.mostrarTimerNome("")
+        BossFarm.estado = "TIME REUNIDO! AVANCANDO"
+        BossFarm.logEvento("Time reunido (" .. juntos .. "/" .. total .. "). Indo para a rotacao.")
+        return true
+    end
+    if passou >= minutos * 60 then
+        BossFarm.esperaTimeDesde = nil
+        BossFarm.mostrarTimerNome("")
+        BossFarm.estado = "TIME INCOMPLETO! INDO SOZINHO"
+        BossFarm.logEvento("Time incompleto (" .. juntos .. "/" .. total .. ") apos " .. minutos .. " min. Fazendo a rotacao sem eles.")
+        return true
+    end
+
+    local falta = minutos * 60 - passou
+    BossFarm.estado = string.format("AGUARDANDO TIME (%d/%d) %02d:%02d", juntos, total, math.floor(falta / 60), falta % 60)
+    BossFarm.mostrarTimerNome(string.format("PARTY %02d:%02d (%d/%d)", math.floor(falta / 60), falta % 60, juntos, total))
+    delay(1000)
+    return "retry"
+end
+
 function BossFarm.aguardarMinuto27()
-    if storage.BossFarmModeCount == "1X" then return true end
+    if storage.BossFarmModeCount == "1X" then return BossFarm.aguardarTime() end
 
     local min = tonumber(os.date("%M"))
     local sec = tonumber(os.date("%S"))
@@ -2076,7 +2156,7 @@ BossCheckBox < CheckBox
 
 AutoPartyListWindow < MainWindow
   text: Auto Party Setup
-  size: 200 250
+  size: 200 280
   @onEscape: self:hide()
   Label
     id: lblLeader
@@ -2130,6 +2210,20 @@ AutoPartyListWindow < MainWindow
     anchors.left: prev.right
     anchors.top: prev.top
     anchors.bottom: prev.bottom
+    margin-left: 3
+  Label
+    id: lblEspera
+    anchors.left: parent.left
+    anchors.top: playerName.bottom
+    margin-top: 9
+    width: 130
+    text: Esperar time 1X (min):
+  TextEdit
+    id: txtEspera
+    anchors.left: prev.right
+    anchors.right: parent.right
+    anchors.top: playerName.bottom
+    margin-top: 5
     margin-left: 3
   Button
     id: closeButton
@@ -2817,6 +2911,11 @@ if autoPartyListWindow == nil then
         config.leaderName = BossFarm.normalizarNomePlayer(text)
     end
     autoPartyListWindow.txtLeader:setText(config.leaderName)
+
+    autoPartyListWindow.txtEspera:setText(tostring(config.esperaTime or 0))
+    autoPartyListWindow.txtEspera.onTextChange = function(widget, text)
+        config.esperaTime = math.max(0, math.min(30, math.floor(tonumber(text) or 0)))
+    end
 end
 
 bossFarmWindow = g_ui.createWidget("BossFarmWindow", g_ui.getRootWidget())
