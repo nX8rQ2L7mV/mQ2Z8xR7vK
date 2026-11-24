@@ -1,6 +1,6 @@
 setDefaultTab("Main")
 BossFarm = BossFarm or {}
-BossFarm.VERSAO = "3.1"
+BossFarm.VERSAO = "3.3"
 
 if bossFarmWindow then
     bossFarmWindow:destroy()
@@ -62,13 +62,14 @@ storage.BossFarmAvisoNome = storage.BossFarmAvisoNome or false
 storage.BossFarmModoCave = storage.BossFarmModoCave or "UNICO"
 storage.BossFarmDelayEntrada = storage.BossFarmDelayEntrada or 1
 storage.BossFarmCaveHuntFixa = storage.BossFarmCaveHuntFixa or ""
+storage.BossFarmCaveRotacao = storage.BossFarmCaveRotacao or "farmboss"
 storage.BossAntiTrapTPEnabled = false
 
 -- CONFIG POR PERSONAGEM: arquivo /BossFarm/<personagem>.json (fora da pasta bot e do storage do vBot).
 -- O storage do vBot e por config e pode falhar ao salvar (ai apos SS/relog voltava horario vazio e rotacoes
 -- desativadas). O arquivo e lido ao carregar o script e tem prioridade; e regravado a cada 1 min se mudar e no SALVAR.
 BossFarm.CAMPOS_HORARIO_ARQ = {"horariosConfigurados", "rotacoesAtivas", "ativasSalvas", "labelConfigurado", "labelPosNpc"}
-BossFarm.CAMPOS_STORAGE_ARQ = {"BossFarmRotationType", "BossFarmModeCount", "BossFarmExecutionMode", "BossFarmCustomList", "BossFarmAvisoNome", "BossFarmModoCave", "BossFarmDelayEntrada", "BossFarmCaveHunt", "BossFarmCaveHuntFixa"}
+BossFarm.CAMPOS_STORAGE_ARQ = {"BossFarmRotationType", "BossFarmModeCount", "BossFarmExecutionMode", "BossFarmCustomList", "BossFarmAvisoNome", "BossFarmModoCave", "BossFarmDelayEntrada", "BossFarmCaveHunt", "BossFarmCaveHuntFixa", "BossFarmCaveRotacao"}
 function BossFarm.arquivoConfig()
     local ok, nome = pcall(function() return player:getName() end)
     if not ok or type(nome) ~= "string" or nome == "" then return nil end
@@ -185,19 +186,19 @@ function BossFarm.irPara(label)
         storage.BossAntiTrapTPEnabled = true
     end
     if BossFarm.modoSeparado() then
-        local destino = BossFarm.labelDaRota(label) and BossFarm.CAVE_BOSS or BossFarm.caveHunt()
+        local destino = BossFarm.labelDaRota(label) and BossFarm.caveBoss() or BossFarm.caveHunt()
         local atual = BossFarm.caveAtual()
         if destino and destino ~= "" and atual ~= destino then
-            if destino == BossFarm.CAVE_BOSS and not BossFarm.naZonaBoss(player:getPosition()) then
-                BossFarm.logEvento("Ignorado ir para '" .. tostring(label) .. "': ainda nao esta la dentro, nao troca para o CaveBot '" .. BossFarm.CAVE_BOSS .. "'.")
+            if destino == BossFarm.caveBoss() and not BossFarm.naZonaBoss(player:getPosition()) then
+                BossFarm.logEvento("Ignorado ir para '" .. tostring(label) .. "': ainda nao esta la dentro, nao troca para o CaveBot '" .. BossFarm.caveBoss() .. "'.")
                 return
             end
             local emRotacao = storage.BossFarmHorario and storage.BossFarmHorario.rotacaoEmAndamento
-            if destino == BossFarm.CAVE_BOSS and not BossFarm.trocaAutorizada and not emRotacao then
-                BossFarm.logEvento("Ignorado ir para '" .. tostring(label) .. "': entrada sem o horario do script, nao troca para o CaveBot '" .. BossFarm.CAVE_BOSS .. "'.")
+            if destino == BossFarm.caveBoss() and not BossFarm.trocaAutorizada and not emRotacao then
+                BossFarm.logEvento("Ignorado ir para '" .. tostring(label) .. "': entrada sem o horario do script, nao troca para o CaveBot '" .. BossFarm.caveBoss() .. "'.")
                 return
             end
-            if destino == BossFarm.CAVE_BOSS and atual then storage.BossFarmCaveHunt = atual BossFarm.gravarArquivo() end
+            if destino == BossFarm.caveBoss() and atual then storage.BossFarmCaveHunt = atual BossFarm.gravarArquivo() end
             if BossFarm.trocarCave(destino) then
                 BossFarm.labelAposTroca = label
                 BossFarm.labelAposTrocaAte = os.time() + 5
@@ -209,6 +210,12 @@ function BossFarm.irPara(label)
 end
 
 BossFarm.CAVE_BOSS = "farmboss"
+
+function BossFarm.caveBoss()
+    local nome = storage.BossFarmCaveRotacao
+    if nome and nome ~= "" then return nome end
+    return BossFarm.CAVE_BOSS
+end
 
 BossFarm.ROTA_CAVE_BOSS = [==[
 label:start
@@ -828,25 +835,11 @@ extensions:[[
 ]]
 ]==]
 
-function BossFarm.arquivoCaveBoss()
+function BossFarm.arquivoCaveBoss(nome)
     local nomeConfig = nil
     pcall(function() nomeConfig = modules.game_bot.contentsPanel.config:getCurrentOption().text end)
     if not nomeConfig then return nil end
-    return "/bot/" .. nomeConfig .. "/cavebot_configs/" .. BossFarm.CAVE_BOSS .. ".cfg"
-end
-
-function BossFarm.instalarCaveBoss()
-    local arq = BossFarm.arquivoCaveBoss()
-    if not (arq and g_resources and g_resources.writeFileContents) then return false end
-    local okE, existe = pcall(g_resources.fileExists, arq)
-    if okE and existe then return true end
-    local ok, err = pcall(g_resources.writeFileContents, arq, BossFarm.ROTA_CAVE_BOSS)
-    if ok then
-        BossFarm.logEvento("CaveBot '" .. BossFarm.CAVE_BOSS .. "' criado em " .. arq)
-    else
-        BossFarm.logEvento("ERRO ao criar " .. arq .. ": " .. tostring(err))
-    end
-    return ok
+    return "/bot/" .. nomeConfig .. "/cavebot_configs/" .. (nome or BossFarm.CAVE_BOSS) .. ".cfg"
 end
 
 function BossFarm.modoSeparado()
@@ -873,7 +866,7 @@ function BossFarm.listarCaveBots()
         if ok and arquivos then
             for _, arq in ipairs(arquivos) do
                 local nome = tostring(arq):match("([^/]+)%.cfg$")
-                if nome and nome ~= BossFarm.CAVE_BOSS then table.insert(lista, nome) end
+                if nome then table.insert(lista, nome) end
             end
         end
     end
@@ -893,7 +886,6 @@ function BossFarm.trocarCave(nome)
         BossFarm.logEvento("Seu vBot nao permite trocar o CaveBot por script (falta setCurrentProfile).")
         return false
     end
-    if nome == BossFarm.CAVE_BOSS then BossFarm.instalarCaveBoss() end
     local ok, err = pcall(CaveBot.setCurrentProfile, nome)
     if not ok or BossFarm.caveAtual() ~= nome then
         BossFarm.logEvento("Erro ao trocar para o CaveBot '" .. tostring(nome) .. "': " .. tostring(err or "perfil nao existe"))
@@ -925,7 +917,7 @@ end
 
 BossFarm.foraDaZonaDesde = nil
 macro(1000, function()
-    if not BossFarm.modoSeparado() or BossFarm.caveAtual() ~= BossFarm.CAVE_BOSS then
+    if not BossFarm.modoSeparado() or BossFarm.caveAtual() ~= BossFarm.caveBoss() then
         BossFarm.foraDaZonaDesde = nil
         return
     end
@@ -938,7 +930,7 @@ macro(1000, function()
     BossFarm.foraDaZonaDesde = nil
     local hunt = BossFarm.caveHunt()
     if not hunt or hunt == "" then
-        BossFarm.logEvento("Vigia: fora da area dos bosses no CaveBot '" .. BossFarm.CAVE_BOSS .. "', mas o CaveBot da hunt nao e conhecido. Troque manualmente.")
+        BossFarm.logEvento("Vigia: fora da area dos bosses no CaveBot '" .. BossFarm.caveBoss() .. "', mas o CaveBot da hunt nao e conhecido. Troque manualmente.")
         return
     end
     BossFarm.logEvento("Vigia: 20s fora da area dos bosses (morte/queda/relog). Voltando para o CaveBot da hunt '" .. hunt .. "'.")
@@ -1043,9 +1035,9 @@ macro(1000, function()
     if inBossArea then
         local comPasse = os.time() <= (BossFarm.passeAte or 0)
         BossFarm.passeAte = 0
-        if comPasse and BossFarm.modoSeparado() and BossFarm.caveAtual() ~= BossFarm.CAVE_BOSS then
+        if comPasse and BossFarm.modoSeparado() and BossFarm.caveAtual() ~= BossFarm.caveBoss() then
             storage.BossFarmStartForcado = true
-            BossFarm.logEvento("Chegou na sala dos TPs: trocando para o CaveBot '" .. BossFarm.CAVE_BOSS .. "'.")
+            BossFarm.logEvento("Chegou na sala dos TPs: trocando para o CaveBot '" .. BossFarm.caveBoss() .. "'.")
             BossFarm.trocaAutorizada = true
             BossFarm.irPara("start")
             BossFarm.trocaAutorizada = false
@@ -1082,7 +1074,7 @@ end)
 macro(1000, function()
     if BossFarm.ativo.isOff() then return end
     if not storage.BossAntiTrapTPEnabled then return end
-    if BossFarm.modoSeparado() and BossFarm.caveAtual() ~= BossFarm.CAVE_BOSS then return end
+    if BossFarm.modoSeparado() and BossFarm.caveAtual() ~= BossFarm.caveBoss() then return end
 
     local myPos = player:getPosition()
     if not myPos then return end
@@ -2241,7 +2233,6 @@ function BossFarm.logEvento(texto)
     print("[Boss Farm] " .. texto)
 end
 
-if BossFarm.modoSeparado() then BossFarm.instalarCaveBoss() end
 
 function BossFarm.setCurrent(boss)
     if BossFarm.currentBoss ~= boss then
@@ -2986,7 +2977,17 @@ BossFarmAjudaWindow < MainWindow
     text: COPIAR FUNCAO DO HORARIO
     anchors.left: parent.left
     anchors.bottom: parent.bottom
-    width: 200
+    width: 180
+    height: 20
+    color: #FFD700
+
+  BossFarmBtn
+    id: copiarInicio
+    text: COPIAR FUNCAO DO INICIO
+    anchors.left: prev.right
+    anchors.bottom: parent.bottom
+    margin-left: 4
+    width: 180
     height: 20
     color: #FFD700
 
@@ -3114,7 +3115,7 @@ AutoPartyListWindow < MainWindow
 
 BossFarmWindow < UIWindow
   width: 270
-  height: 562
+  height: 480
   padding: 6
   image-source: ~
   background-color: #000000DD
@@ -3133,7 +3134,7 @@ BossFarmWindow < UIWindow
       color: #00FFFF
       font: verdana-11px-rounded
       anchors.left: parent.left
-      anchors.right: minimizeButton.left
+      anchors.right: helpButton.left
       anchors.top: parent.top
       text-align: center
     BossFarmBtn
@@ -3153,6 +3154,15 @@ BossFarmWindow < UIWindow
       width: 22
       height: 18
       color: #FFFF00
+    BossFarmBtn
+      id: helpButton
+      text: ?
+      anchors.right: prev.left
+      anchors.top: parent.top
+      margin-right: 4
+      width: 22
+      height: 18
+      color: #00FF7F
 
   Panel
     id: tabBar
@@ -3165,25 +3175,31 @@ BossFarmWindow < UIWindow
     BossFarmBtn
       id: tabStatus
       text: STATUS
-      width: 63
+      width: 49
       height: 20
 
     BossFarmBtn
       id: tabConfig
       text: CONFIG
-      width: 63
+      width: 49
       height: 20
 
     BossFarmBtn
       id: tabCustom
       text: CUSTOM
-      width: 63
+      width: 49
       height: 20
 
     BossFarmBtn
       id: tabNpc
       text: NPC
-      width: 63
+      width: 49
+      height: 20
+
+    BossFarmBtn
+      id: tabCave
+      text: CAVEBOT
+      width: 54
       height: 20
 
   Panel
@@ -3386,7 +3402,7 @@ BossFarmWindow < UIWindow
 
   Panel
     id: pageConfig
-    height: 452
+    height: 350
     visible: false
     layout:
       type: verticalBox
@@ -3510,77 +3526,12 @@ BossFarmWindow < UIWindow
         width: 118
         color: #B03060
 
-    Panel
-      height: 18
-      margin-top: 2
-      layout:
-        type: horizontalBox
-        spacing: 0
-      UILabel
-        text: CAVEBOT:
-        width: 140
-        color: #F0FFF0
-        font: verdana-11px-rounded
-      BossFarmBtn
-        id: toggleModoCave
-        text: UNICO
-        width: 118
-        color: #FFFF00
-
-    UILabel
-      text: CaveBot da hunt (volta ao terminar)
-      text-align: center
-      font: verdana-11px-rounded
-      color: #C455FF
-      height: 14
-      margin-top: 4
-
-    Panel
-      height: 22
-      layout:
-        type: horizontalBox
-        spacing: 3
-      ComboBox
-        id: cbHunt
-        width: 188
-        height: 22
-      BossFarmBtn
-        id: cbAtualizar
-        text: ATUALIZAR
-        width: 67
-        height: 20
-
-    UILabel
-      id: cbAgora
-      text: CaveBot do bot agora: ?
-      color: #7FB2FF
-      height: 14
-
     BossFarmBtn
       id: editPartyList
       text: SETUP AUTO PARTY
       height: 18
       color: #FFFF00
       margin-top: 4
-
-    Panel
-      height: 20
-      margin-top: 2
-      layout:
-        type: horizontalBox
-        spacing: 3
-      BossFarmBtn
-        id: helpButton
-        text: HELP
-        width: 100
-        height: 18
-        color: #00FF7F
-      BossFarmBtn
-        id: copiarCaveButton
-        text: COPIAR CAVEBOT
-        width: 155
-        height: 18
-        color: #FFD700
 
     HorizontalSeparator
       height: 2
@@ -3794,6 +3745,117 @@ BossFarmWindow < UIWindow
         width: 126
         height: 18
 
+  Panel
+    id: pageCave
+    height: 350
+    visible: false
+    layout:
+      type: verticalBox
+
+    UILabel
+      text: MODO CAVEBOT
+      text-align: center
+      font: verdana-11px-rounded
+      color: #C455FF
+      height: 16
+      margin-top: 2
+
+    Panel
+      height: 18
+      margin-top: 2
+      layout:
+        type: horizontalBox
+        spacing: 0
+      UILabel
+        text: CAVEBOT:
+        width: 140
+        color: #F0FFF0
+        font: verdana-11px-rounded
+      BossFarmBtn
+        id: toggleModoCave
+        text: UNICO
+        width: 118
+        color: #FFFF00
+
+    UILabel
+      text: UNICO: rota dos bosses junto da sua hunt.
+      color: #9A9A9A
+      height: 14
+      margin-top: 3
+    UILabel
+      text: SEPARADO: troca de CaveBot na sala dos TPs.
+      color: #9A9A9A
+      height: 14
+
+    HorizontalSeparator
+      height: 2
+      margin-top: 4
+
+    UILabel
+      text: CaveBot da hunt (volta ao terminar)
+      font: verdana-11px-rounded
+      color: #C455FF
+      height: 16
+      margin-top: 4
+
+    Panel
+      height: 22
+      layout:
+        type: horizontalBox
+        spacing: 3
+      ComboBox
+        id: cbHunt
+        width: 188
+        height: 22
+      BossFarmBtn
+        id: cbAtualizar
+        text: ATUALIZAR
+        width: 67
+        height: 20
+
+    UILabel
+      text: CaveBot da rotacao (bosses)
+      font: verdana-11px-rounded
+      color: #C455FF
+      height: 16
+      margin-top: 6
+
+    ComboBox
+      id: cbRotacao
+      height: 22
+
+    UILabel
+      id: cbAgora
+      text: CaveBot do bot agora: ?
+      color: #7FB2FF
+      height: 16
+      margin-top: 6
+
+    HorizontalSeparator
+      height: 2
+      margin-top: 6
+
+    BossFarmBtn
+      id: copiarCaveButton
+      text: COPIAR CAVEBOT DA ROTACAO
+      height: 20
+      color: #FFD700
+      margin-top: 6
+
+    BossFarmBtn
+      id: copiarFuncaoButton
+      text: COPIAR FUNCAO DO HORARIO
+      height: 20
+      color: #FFD700
+      margin-top: 3
+
+    BossFarmBtn
+      id: helpCaveButton
+      text: COMO CONFIGURAR (HELP)
+      height: 20
+      color: #00FF7F
+      margin-top: 3
+
   BossFarmBtn
     id: resetGeralButton
     text: RESETAR SISTEMA E ROTACOES
@@ -3917,6 +3979,9 @@ bossFarmWindow.cbAtualizar = bossFarmWindow:recursiveGetChildById("cbAtualizar")
 bossFarmWindow.cbAgora = bossFarmWindow:recursiveGetChildById("cbAgora")
 bossFarmWindow.helpButton = bossFarmWindow:recursiveGetChildById("helpButton")
 bossFarmWindow.copiarCaveButton = bossFarmWindow:recursiveGetChildById("copiarCaveButton")
+bossFarmWindow.copiarFuncaoButton = bossFarmWindow:recursiveGetChildById("copiarFuncaoButton")
+bossFarmWindow.helpCaveButton = bossFarmWindow:recursiveGetChildById("helpCaveButton")
+bossFarmWindow.cbRotacao = bossFarmWindow:recursiveGetChildById("cbRotacao")
 bossFarmWindow.rotationStatus1 = bossFarmWindow:recursiveGetChildById("rotationStatus1")
 bossFarmWindow.rotationStatus2 = bossFarmWindow:recursiveGetChildById("rotationStatus2")
 bossFarmWindow.rotationStatus3 = bossFarmWindow:recursiveGetChildById("rotationStatus3")
@@ -3926,11 +3991,13 @@ bossFarmWindow.tabStatus = bossFarmWindow:recursiveGetChildById("tabStatus")
 bossFarmWindow.tabConfig = bossFarmWindow:recursiveGetChildById("tabConfig")
 bossFarmWindow.tabCustom = bossFarmWindow:recursiveGetChildById("tabCustom")
 bossFarmWindow.tabNpc = bossFarmWindow:recursiveGetChildById("tabNpc")
+bossFarmWindow.tabCave = bossFarmWindow:recursiveGetChildById("tabCave")
 
 bossFarmWindow.pageStatus = bossFarmWindow:recursiveGetChildById("pageStatus")
 bossFarmWindow.pageConfig = bossFarmWindow:recursiveGetChildById("pageConfig")
 bossFarmWindow.pageCustom = bossFarmWindow:recursiveGetChildById("pageCustom")
 bossFarmWindow.pageNpc = bossFarmWindow:recursiveGetChildById("pageNpc")
+bossFarmWindow.pageCave = bossFarmWindow:recursiveGetChildById("pageCave")
 
 bossFarmWindow.npcListPanel = bossFarmWindow:recursiveGetChildById("npcListPanel")
 bossFarmWindow.customListPanel = bossFarmWindow:recursiveGetChildById("customListPanel")
@@ -4026,10 +4093,12 @@ if bossFarmWindow.minimizeButton then
             bossFarmWindow.pageConfig:hide()
             bossFarmWindow.pageCustom:hide()
             bossFarmWindow.pageNpc:hide()
+            bossFarmWindow.pageCave:hide()
             bossFarmWindow.tabStatus:hide()
             bossFarmWindow.tabConfig:hide()
             bossFarmWindow.tabCustom:hide()
             bossFarmWindow.tabNpc:hide()
+            bossFarmWindow.tabCave:hide()
             bossFarmWindow.resetGeralButton:hide()
             bossFarmWindow:setHeight(26)
             bossFarmWindow.minimizeButton:setText("+")
@@ -4039,8 +4108,9 @@ if bossFarmWindow.minimizeButton then
             bossFarmWindow.tabConfig:show()
             bossFarmWindow.tabCustom:show()
             bossFarmWindow.tabNpc:show()
+            bossFarmWindow.tabCave:show()
             bossFarmWindow.resetGeralButton:show()
-            bossFarmWindow:setHeight(562)
+            bossFarmWindow:setHeight(480)
             BossFarm.mostrarPagina(BossFarm.paginaAtual or 1)
             bossFarmWindow.minimizeButton:setText("-")
         end
@@ -4149,13 +4219,32 @@ function BossFarm.preencherCaveBots()
     local combo = bossFarmWindow and bossFarmWindow.cbHunt
     if not combo then return 0 end
     local lista = BossFarm.listarCaveBots()
+    local rot = bossFarmWindow.cbRotacao
+    if rot then
+        rot.onOptionChange = nil
+        rot:clearOptions()
+        rot:addOption(BossFarm.CAVE_BOSS)
+        local achouRot = storage.BossFarmCaveRotacao == BossFarm.CAVE_BOSS
+        for _, nome in ipairs(lista) do
+            if nome ~= BossFarm.CAVE_BOSS then rot:addOption(nome) end
+            if nome == storage.BossFarmCaveRotacao then achouRot = true end
+        end
+        rot:setCurrentOption(achouRot and storage.BossFarmCaveRotacao or BossFarm.CAVE_BOSS)
+        rot.onOptionChange = function(_, texto)
+            storage.BossFarmCaveRotacao = texto
+            BossFarm.gravarArquivo()
+            BossFarm.logEvento("CaveBot da rotacao: " .. texto)
+        end
+    end
     combo.onOptionChange = nil
     combo:clearOptions()
     combo:addOption(BossFarm.OPCAO_AUTO)
     local achou = false
     for _, nome in ipairs(lista) do
-        combo:addOption(nome)
-        if nome == storage.BossFarmCaveHuntFixa then achou = true end
+        if nome ~= BossFarm.caveBoss() then
+            combo:addOption(nome)
+            if nome == storage.BossFarmCaveHuntFixa then achou = true end
+        end
     end
     combo:setCurrentOption(achou and storage.BossFarmCaveHuntFixa or BossFarm.OPCAO_AUTO)
     combo.onOptionChange = function(_, texto)
@@ -4168,138 +4257,56 @@ end
 BossFarm.preencherCaveBots()
 
 BossFarm.AJUDA = {
-    {"PASSO A PASSO (CONFIGURAR A PRIMEIRA VEZ)", "#00FF7F", {
-        "1. Ir p/ Bosses: escreva o nome da label que leva ate os bosses",
-        "   (pode deixar o padrao 'farmboss' ou usar o nome que preferir).",
-        "2. Clique em COPIAR FUNCAO DO HORARIO (aqui embaixo) e, na sua",
-        "   CaveBot de hunt, adicione uma action 'function' e cole (Ctrl+V)",
-        "   no ponto da hunt onde ele deve checar o horario (ex.: no loop).",
-        "3. Ainda na hunt, crie a label com o nome do passo 1 e coloque",
-        "   os goto que saem da cave ate dentro da sala dos TPs (rotacoes).",
-        "   Antes de entrar no TP adicione 'function' com:",
-        "   return BossFarm.travaFarmboss()",
-        "4. Voltar Cave: escreva a label da hunt pra onde ele volta no fim.",
-        "5. CAVEBOT: SEPARADO (aqui na CONFIG) pra rota dos bosses ficar na",
-        "   CaveBot 'farmboss', criada sozinha. Em UNICO a rota fica na hunt.",
-        "6. CaveBot da hunt: escolha a sua CaveBot de hunt na lista.",
-        "7. Coloque os horarios, clique SALVAR e ligue o BOSS FARM.",
+    {"PASSO A PASSO - CONFIGURAR A PRIMEIRA VEZ", "#00FF7F", {
+        "Siga os passos na ordem. Os botoes no rodape desta janela",
+        "copiam as functions que vao na sua CaveBot de hunt.",
     }},
-    {"COMO FUNCIONA", "#00FFFF", {
-        "Na hora marcada a CaveBot passa na label 'farmboss', que chama",
-        "BossFarm.verificarHorario(). Se for a hora, o char vai ate o TP,",
-        "entra na sala dos TPs e faz os bosses da rotacao um por um.",
-        "No fim fala com a Seraphina (NPC) pra limpar os bosses mortos",
-        "e volta pra hunt pela label do 'Voltar Cave'.",
-        "Precisa: VIP com 10 dias ou mais e 10 harvestable por boss",
-        "(150 na FULL, 90 na 9 BOSSES, 10 x marcados na CUSTOM).",
-    }},
-    {"ABAS", "#00FFFF", {
-        "STATUS: boss atual, entrada/derrota/teleporte, pendentes,",
-        "         estado do painel e o ULTIMO EVENTO (log).",
-        "CONFIG: tudo que esta explicado aqui embaixo.",
-        "CUSTOM: marca quais bosses entram na rotacao CUSTOM.",
-        "NPC:    bosses ja mortos pra limpar na Seraphina.",
-    }},
-    {"ROTACAO", "#00FFFF", {
-        "Clique pra alternar:",
-        "FULL (15 BOSSES): faz os 15 bosses.",
+    {"1 - ROTACAO  (aba CONFIG)", "#00FFFF", {
+        "Escolha o tipo de rotacao:",
+        "FULL (15 BOSSES): faz a rotacao completa, os 15 bosses.",
         "9 BOSSES: faz os bosses 1 a 7, 9 e 10.",
-        "CUSTOM (SELECIONADOS): so os marcados na aba CUSTOM.",
-        "Mudar no meio da rotacao vale na hora: ele vai pro proximo",
-        "boss pendente da rotacao nova.",
+        "CUSTOM: faz so os bosses que voce marcar na aba CUSTOM.",
     }},
-    {"HORARIO: 3X / 1X (LIVRE)", "#7FFF00", {
-        "3X: antes de comecar espera o minuto 28:10 da hora.",
-        "1X (LIVRE): nao espera o minuto. Se 'Esperar time 1X' estiver",
-        "configurado no SETUP AUTO PARTY, espera o time chegar na tela",
-        "e entrar na party (no maximo o tempo configurado).",
+    {"2 - HORARIO 1X / 3X", "#7FFF00", {
+        "1X (LIVRE): nao espera nada, faz assim que der o horario.",
+        "3X: espera dar o horario do 3X antes de comecar.",
     }},
-    {"EXECUCAO", "#FFFF00", {
-        "PADRAO (3 HORARIOS): uma rotacao em cada horario Rotacao 1/2/3.",
-        "ROTACAO GRATIS 1X NO DIA: uma rotacao por dia, sem NPC.",
-        "LOOP 3X SEGUIDAS: no horario da Rotacao 1 faz 3 voltas seguidas,",
-        "limpando na Seraphina entre elas. Rotacao 2 e 3 ficam travadas.",
-        "So conta a volta se a Seraphina respondeu. Se cair/morrer no meio",
-        "do loop, a rotacao fica PERDIDA e nao puxa mais no dia.",
+    {"3 - EXECUCAO", "#FFFF00", {
+        "ROTACAO GRATIS 1X NO DIA: rotacao gratuita, nao gasta nada.",
+        "LOOP 3X SEGUIDAS: faz 3 rotacoes seguidas.",
+        "PADRAO (3 HORARIOS): faz 1 rotacao em cada horario. Ideal pra",
+        "quem quer fazer no 3X.",
     }},
-    {"BOSS FARM", "#00FF00", {
-        "Liga/desliga o painel inteiro. Desligado ele nao faz nada,",
-        "nem a label 'farmboss' manda pros bosses.",
+    {"4 - O QUE LIGAR", "#00FF00", {
+        "BOSS FARM: deixe ATIVO, senao o painel nao funciona.",
+        "AUTO FOLLOW BOSSES: quer que ele de follow e grude no boss?",
+        "So ligar.",
+        "AUTO PARTY LEADER: vai fazer em grupo e voce e o lider da PT?",
+        "So ligar.",
+        "AVISO NO NOME: quer aviso em cima do char quando faltar",
+        "harvestable ou VIP? So deixar ligado.",
+        "CAVEBOT (aba CAVEBOT):",
+        "  UNICO: a rota da rotacao fica embutida na CaveBot de hunt.",
+        "  SEPARADO (recomendado): 2 CaveBots, uma de rotacao e outra",
+        "  de hunt. Use COPIAR CAVEBOT DA ROTACAO pra criar a 'farmboss'",
+        "  e escolha as duas CaveBots nas caixas da aba CAVEBOT.",
     }},
-    {"AUTO FOLLOW BOSSES", "#00FF00", {
-        "Dentro da sala, segue o boss pra nao ficar parado longe dele.",
+    {"5 - HORARIOS E LABELS DA ROTACAO", "#FFD700", {
+        "IR P/ BOSSES: nome da label que sai da cave pra fazer a rotacao.",
+        "Pode deixar 'farmboss' (padrao) ou usar o nome que preferir.",
+        "Na sua CaveBot de hunt:",
+        "  - COPIAR FUNCAO DO HORARIO (rodape): cole numa 'function'",
+        "    junto com os outros checkins da hunt.",
+        "  - Crie a label do IR P/ BOSSES com os goto que saem da cave",
+        "    ate dentro da sala dos TPs.",
+        "  - COPIAR FUNCAO DO INICIO (rodape): cole numa 'function' no",
+        "    inicio da CaveBot de hunt.",
+        "VOLTAR CAVE: label da hunt pra onde ele volta no fim.",
+        "So precisa no CaveBot UNICO.",
     }},
-    {"AUTO PARTY LEADER  +  SETUP AUTO PARTY", "#00FF00", {
-        "Liga a party automatica com o lider e a lista do SETUP.",
-        "SETUP AUTO PARTY abre a janela pra colocar o lider, os nomes",
-        "da party e o 'Esperar time 1X (min)' (0 = nao espera).",
-    }},
-    {"TP ACIDENTAL", "#00FF00", {
-        "Se cair no TP errado durante a rotacao, da um passo pra fora",
-        "e volta pra rota. Liga sozinho quando entra na sala dos TPs.",
-        "No modo SEPARADO so age com a CaveBot 'farmboss' ligada.",
-    }},
-    {"AVISO NO NOME", "#00FF00", {
-        "Mostra embaixo do nome do char o que falta: harvestable ou VIP.",
-    }},
-    {"CAVEBOT: UNICO / SEPARADO", "#FFD700", {
-        "UNICO (padrao): a rota dos bosses fica junto da sua CaveBot de",
-        "hunt, como sempre foi. O painel nunca troca de CaveBot.",
-        "SEPARADO: o painel cria a CaveBot 'farmboss' com a rota padrao",
-        "(so se ela nao existir; se voce mudar algo nela, fica mudado).",
-        "Quando o horario manda e o char chega na sala dos TPs, troca",
-        "pra 'farmboss'. No fim volta pra CaveBot da hunt.",
-        "Entrada manual NUNCA troca de CaveBot.",
-        "Na sua hunt fica so: hunt + label 'farmboss' ate o TP + a",
-        "label do 'Voltar Cave'.",
-    }},
-    {"CAVEBOT DA HUNT (VOLTA AO TERMINAR)", "#FFD700", {
-        "Pra qual CaveBot ele volta no fim da rotacao (modo SEPARADO).",
-        "(automatico): volta pra que estava ligada na hora da troca.",
-        "Escolhendo uma: volta sempre pra ela. Recomendado.",
-        "ATUALIZAR: le de novo as CaveBots da config do bot.",
-        "'CaveBot do bot agora' mostra qual esta ligada neste momento.",
-    }},
-    {"IR P/ BOSSES  /  VOLTAR CAVE", "#FFD700", {
-        "Ir p/ Bosses: label da sua CaveBot que leva ate o TP",
-        "(padrao 'farmboss').",
-        "Voltar Cave: label da sua CaveBot de hunt pra onde ele vai",
-        "quando termina (ex.: 'inicio'). Ela precisa existir na hunt.",
-    }},
-    {"ROTACAO 1 / 2 / 3  (HORARIOS)", "#FFD700", {
-        "Hora de cada rotacao no formato HH:MM.",
-        "Clicar em 'Rotacao N' liga/desliga aquela rotacao.",
-        "Ao lado mostra: PENDENTE, AGUARDANDO, k/3 no loop, CONCLUIDA,",
-        "PERDIDA ou DESATIVADA.",
-        "Mudar o horario de uma rotacao em andamento cancela ela.",
-    }},
-    {"SALVAR / RESETAR", "#FF6347", {
-        "SALVAR HORARIOS E LABELS: grava horarios e labels. Tudo fica",
-        "salvo por char em /BossFarm/<char>.json.",
-        "RESETAR SISTEMA E ROTACOES: zera o estado do painel (boss",
-        "atual, pendentes, lista do NPC). Use se travar algo.",
-    }},
-    {"ABA NPC", "#C455FF", {
-        "Lista dos bosses pra limpar. LIMPAR SELEC. vai na Seraphina",
-        "agora e limpa os marcados. MARCAR TODOS marca os 15.",
-        "A Seraphina so deixa 2 limpezas por boss a cada 24h.",
-    }},
-    {"PROTECOES AUTOMATICAS", "#FF6347", {
-        "Porta: se nao entrou no boss e ainda esta na sala dos TPs,",
-        "volta na porta ate 3 vezes; depois pula o boss (pendente).",
-        "AFK: durante a rotacao, 15 min parado no mesmo sqm ou 15 min",
-        "sem entrar em boss = fala '!tp thais'.",
-        "Vigia (SEPARADO): 20s fora da area dos bosses com a CaveBot",
-        "'farmboss' ligada (morte, queda, relog) = volta pra hunt.",
-        "A troca pra 'farmboss' so acontece la dentro e com horario.",
-    }},
-    {"COPIAR FUNCAO DO HORARIO", "#FFD700", {
-        "Copia 'return BossFarm.verificarHorario()' pra colar numa action",
-        "'function' da sua CaveBot de hunt (passo 2).",
-    }},
-    {"COPIAR CAVEBOT", "#FFD700", {
-        "Copia pra area de transferencia (Ctrl+V) a CaveBot 'farmboss'",
-        "desta config do bot. Se ela ainda nao existir, copia a padrao.",
+    {"6 - ROTACAO 1, 2 E 3", "#FF6347", {
+        "Coloque o horario de cada rotacao (HH:MM) e clique SALVAR.",
+        "Rotacao 2 e 3 so servem no PADRAO (3 HORARIOS).",
     }},
 }
 
@@ -4314,7 +4321,7 @@ function BossFarm.copiarTexto(texto, nome)
 end
 
 function BossFarm.textoCaveBoss()
-    local arq = BossFarm.arquivoCaveBoss()
+    local arq = BossFarm.arquivoCaveBoss(BossFarm.caveBoss())
     local ok, txt = pcall(function()
         if arq and g_resources.fileExists(arq) then return g_resources.readFileContents(arq) end
         return nil
@@ -4330,6 +4337,9 @@ function BossFarm.abrirAjuda()
         j.fechar.onClick = function() j:hide() end
         j.copiarFuncao.onClick = function()
             BossFarm.copiarTexto("return BossFarm.verificarHorario()", "Funcao do horario")
+        end
+        j.copiarInicio.onClick = function()
+            BossFarm.copiarTexto("BossFarm.desligarAntiTrap()\n\nreturn true", "Funcao do inicio")
         end
         for _, sec in ipairs(BossFarm.AJUDA) do
             local t = g_ui.createWidget("BossFarmAjudaTitulo", j.conteudo)
@@ -4349,9 +4359,19 @@ if bossFarmWindow.helpButton then
     bossFarmWindow.helpButton.onClick = function() BossFarm.abrirAjuda() end
 end
 
+if bossFarmWindow.copiarFuncaoButton then
+    bossFarmWindow.copiarFuncaoButton.onClick = function()
+        BossFarm.copiarTexto("return BossFarm.verificarHorario()", "Funcao do horario")
+    end
+end
+
+if bossFarmWindow.helpCaveButton then
+    bossFarmWindow.helpCaveButton.onClick = function() BossFarm.abrirAjuda() end
+end
+
 if bossFarmWindow.copiarCaveButton then
     bossFarmWindow.copiarCaveButton.onClick = function()
-        BossFarm.copiarTexto(BossFarm.textoCaveBoss(), "CaveBot '" .. BossFarm.CAVE_BOSS .. "'")
+        BossFarm.copiarTexto(BossFarm.textoCaveBoss(), "CaveBot '" .. BossFarm.caveBoss() .. "'")
     end
 end
 
@@ -4364,8 +4384,7 @@ end
 if bossFarmWindow.toggleModoCave then
     bossFarmWindow.toggleModoCave.onClick = function()
         storage.BossFarmModoCave = BossFarm.modoSeparado() and "UNICO" or "SEPARADO"
-        if BossFarm.modoSeparado() then BossFarm.instalarCaveBoss() end
-        BossFarm.logEvento("Modo CaveBot: " .. storage.BossFarmModoCave .. (BossFarm.modoSeparado() and (" (rotacao no CaveBot '" .. BossFarm.CAVE_BOSS .. "')") or ""))
+        BossFarm.logEvento("Modo CaveBot: " .. storage.BossFarmModoCave .. (BossFarm.modoSeparado() and (" (rotacao no CaveBot '" .. BossFarm.caveBoss() .. "')") or ""))
         BossFarm.gravarArquivo()
         BossFarm.atualizarPainel()
     end
@@ -4411,6 +4430,7 @@ function BossFarm.mostrarPagina(numero)
     bossFarmWindow.pageConfig:hide()
     bossFarmWindow.pageCustom:hide()
     bossFarmWindow.pageNpc:hide()
+    bossFarmWindow.pageCave:hide()
 
     local corInativa = "#777777"
     local corAtiva = "#00FFFF"
@@ -4419,6 +4439,7 @@ function BossFarm.mostrarPagina(numero)
     bossFarmWindow.tabConfig:setColor(corInativa)
     bossFarmWindow.tabCustom:setColor(corInativa)
     bossFarmWindow.tabNpc:setColor(corInativa)
+    bossFarmWindow.tabCave:setColor(corInativa)
 
     if numero == 1 then
         bossFarmWindow.pageStatus:show()
@@ -4432,6 +4453,9 @@ function BossFarm.mostrarPagina(numero)
     elseif numero == 4 then
         bossFarmWindow.pageNpc:show()
         bossFarmWindow.tabNpc:setColor(corAtiva)
+    elseif numero == 5 then
+        bossFarmWindow.pageCave:show()
+        bossFarmWindow.tabCave:setColor(corAtiva)
     end
 end
 
@@ -4446,6 +4470,7 @@ if bossFarmWindow.tabCustom then
 end
 if bossFarmWindow.tabNpc then
     bossFarmWindow.tabNpc.onClick = function() BossFarm.mostrarPagina(4) end
+    if bossFarmWindow.tabCave then bossFarmWindow.tabCave.onClick = function() BossFarm.mostrarPagina(5) end end
 end
 
 BossFarm.mostrarPagina(1)
