@@ -1,6 +1,6 @@
 setDefaultTab("Main")
 BossFarm = BossFarm or {}
-BossFarm.VERSAO = "3.9"
+BossFarm.VERSAO = "4.0"
 
 if bossFarmWindow then
     bossFarmWindow:destroy()
@@ -992,33 +992,40 @@ end)
 BossFarm.GOTO_DIST_BOSS = 127
 BossFarm.gotoNaoForcar = false
 
-function BossFarm.barrasGoto()
-    local achadas = {}
-    local function procurar(pai, prof)
-        if prof > 25 then return end
-        for _, f in ipairs(pai:getChildren()) do
-            local ok, txt = pcall(function() return f:getText() end)
-            if ok and type(txt) == "string" and txt:find("GoTo: %d+$") then
-                local okP, irmaos = pcall(function() return f:getParent():getChildren() end)
-                if okP and irmaos then
-                    for _, irmao in ipairs(irmaos) do
-                        local okM, maximo = pcall(function() return irmao:getMaximum() end)
-                        if okM and type(maximo) == "number" then table.insert(achadas, irmao) end
-                    end
-                end
+function BossFarm.acharBarraGoto(pai, prof)
+    if prof > 25 then return nil end
+    local filhos = pai:getChildren()
+    for i = #filhos, 1, -1 do
+        local f = filhos[i]
+        local txt = f:getText()
+        if type(txt) == "string" and txt:find("GoTo: %d+$") then
+            local irmaos = f:getParent():getChildren()
+            for k = #irmaos, 1, -1 do
+                if irmaos[k].getMaximum then return irmaos[k] end
             end
-            procurar(f, prof + 1)
         end
+        local achou = BossFarm.acharBarraGoto(f, prof + 1)
+        if achou then return achou end
     end
-    pcall(procurar, g_ui.getRootWidget(), 0)
-    return achadas
+    return nil
+end
+
+function BossFarm.barraGoto()
+    local b = BossFarm.barraGotoAtual
+    if b then
+        local ok, viva = pcall(function() return not b:isDestroyed() and b:getParent() ~= nil end)
+        if ok and viva then return b end
+    end
+    local ok, achou = pcall(BossFarm.acharBarraGoto, g_ui.getRootWidget(), 0)
+    BossFarm.barraGotoAtual = ok and achou or nil
+    return BossFarm.barraGotoAtual
 end
 
 function BossFarm.definirGoto(valor)
-    local barras = BossFarm.barrasGoto()
-    for _, barra in ipairs(barras) do pcall(function() barra:setValue(valor) end) end
+    local barra = BossFarm.barraGoto()
+    if barra then pcall(function() barra:setValue(valor) end) end
     storage.settings.gotoMaxDistance = valor
-    return #barras
+    return barra and "ok" or "nao achada"
 end
 
 macro(1000, function()
@@ -1033,7 +1040,7 @@ macro(1000, function()
             if atual == BossFarm.GOTO_DIST_BOSS then return end
             storage.BossFarmGotoOriginal = atual
             local n = BossFarm.definirGoto(BossFarm.GOTO_DIST_BOSS)
-            BossFarm.logEvento("Salas dos bosses: distancia do goto " .. atual .. " -> " .. BossFarm.GOTO_DIST_BOSS .. " (volta ao sair). Barrinhas: " .. n)
+            BossFarm.logEvento("Salas dos bosses: distancia do goto " .. atual .. " -> " .. BossFarm.GOTO_DIST_BOSS .. " (volta ao sair). Barrinha: " .. n)
             BossFarm.gravarArquivo()
         elseif atual ~= BossFarm.GOTO_DIST_BOSS then
             storage.BossFarmGotoOriginal = false
@@ -1048,7 +1055,7 @@ macro(1000, function()
     storage.BossFarmGotoOriginal = false
     if type(original) == "number" and atual == BossFarm.GOTO_DIST_BOSS then
         local n = BossFarm.definirGoto(original)
-        BossFarm.logEvento("Saiu das salas dos bosses: distancia do goto voltou para " .. original .. ". Barrinhas: " .. n)
+        BossFarm.logEvento("Saiu das salas dos bosses: distancia do goto voltou para " .. original .. ". Barrinha: " .. n)
     end
     BossFarm.gravarArquivo()
 end)
