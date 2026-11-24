@@ -61,13 +61,14 @@ storage.BossFarmExecutionMode = storage.BossFarmExecutionMode or "SCHEDULE"
 storage.BossFarmAvisoNome = storage.BossFarmAvisoNome or false
 storage.BossFarmModoCave = storage.BossFarmModoCave or "UNICO"
 storage.BossFarmDelayEntrada = storage.BossFarmDelayEntrada or 1
+storage.BossFarmCaveHuntFixa = storage.BossFarmCaveHuntFixa or ""
 storage.BossAntiTrapTPEnabled = false
 
 -- CONFIG POR PERSONAGEM: arquivo /BossFarm/<personagem>.json (fora da pasta bot e do storage do vBot).
 -- O storage do vBot e por config e pode falhar ao salvar (ai apos SS/relog voltava horario vazio e rotacoes
 -- desativadas). O arquivo e lido ao carregar o script e tem prioridade; e regravado a cada 1 min se mudar e no SALVAR.
 BossFarm.CAMPOS_HORARIO_ARQ = {"horariosConfigurados", "rotacoesAtivas", "ativasSalvas", "labelConfigurado", "labelPosNpc"}
-BossFarm.CAMPOS_STORAGE_ARQ = {"BossFarmRotationType", "BossFarmModeCount", "BossFarmExecutionMode", "BossFarmCustomList", "BossFarmAvisoNome", "BossFarmModoCave", "BossFarmDelayEntrada", "BossFarmCaveHunt"}
+BossFarm.CAMPOS_STORAGE_ARQ = {"BossFarmRotationType", "BossFarmModeCount", "BossFarmExecutionMode", "BossFarmCustomList", "BossFarmAvisoNome", "BossFarmModoCave", "BossFarmDelayEntrada", "BossFarmCaveHunt", "BossFarmCaveHuntFixa"}
 function BossFarm.arquivoConfig()
     local ok, nome = pcall(function() return player:getName() end)
     if not ok or type(nome) ~= "string" or nome == "" then return nil end
@@ -184,7 +185,7 @@ function BossFarm.irPara(label)
         storage.BossAntiTrapTPEnabled = true
     end
     if BossFarm.modoSeparado() then
-        local destino = BossFarm.labelDaRota(label) and BossFarm.CAVE_BOSS or storage.BossFarmCaveHunt
+        local destino = BossFarm.labelDaRota(label) and BossFarm.CAVE_BOSS or BossFarm.caveHunt()
         local atual = BossFarm.caveAtual()
         if destino and destino ~= "" and atual ~= destino then
             if destino == BossFarm.CAVE_BOSS and not BossFarm.naZonaBoss(player:getPosition()) then
@@ -711,6 +712,29 @@ function BossFarm.labelDaRota(label)
     return label == "start" or label == "npc" or label:match("^boss%d+$") ~= nil or label:match("^spawn%d+$") ~= nil
 end
 
+function BossFarm.caveHunt()
+    local fixa = storage.BossFarmCaveHuntFixa
+    if fixa and fixa ~= "" then return fixa end
+    return storage.BossFarmCaveHunt
+end
+
+function BossFarm.listarCaveBots()
+    local lista = {}
+    local nomeConfig = nil
+    pcall(function() nomeConfig = modules.game_bot.contentsPanel.config:getCurrentOption().text end)
+    if nomeConfig and g_resources and g_resources.listDirectoryFiles then
+        local ok, arquivos = pcall(g_resources.listDirectoryFiles, "/bot/" .. nomeConfig .. "/cavebot_configs", false, false)
+        if ok and arquivos then
+            for _, arq in ipairs(arquivos) do
+                local nome = tostring(arq):match("([^/]+)%.cfg$")
+                if nome and nome ~= BossFarm.CAVE_BOSS then table.insert(lista, nome) end
+            end
+        end
+    end
+    table.sort(lista, function(a, b) return a:lower() < b:lower() end)
+    return lista
+end
+
 function BossFarm.caveAtual()
     if not (CaveBot and CaveBot.getCurrentProfile) then return nil end
     local ok, nome = pcall(CaveBot.getCurrentProfile)
@@ -766,7 +790,7 @@ macro(1000, function()
     BossFarm.foraDaZonaDesde = BossFarm.foraDaZonaDesde or os.time()
     if os.time() - BossFarm.foraDaZonaDesde < 20 then return end
     BossFarm.foraDaZonaDesde = nil
-    local hunt = storage.BossFarmCaveHunt
+    local hunt = BossFarm.caveHunt()
     if not hunt or hunt == "" then
         BossFarm.logEvento("Vigia: fora da area dos bosses no CaveBot '" .. BossFarm.CAVE_BOSS .. "', mas o CaveBot da hunt nao e conhecido. Troque manualmente.")
         return
@@ -2884,7 +2908,7 @@ AutoPartyListWindow < MainWindow
 
 BossFarmWindow < UIWindow
   width: 270
-  height: 480
+  height: 540
   padding: 6
   image-source: ~
   background-color: #000000DD
@@ -3156,7 +3180,7 @@ BossFarmWindow < UIWindow
 
   Panel
     id: pageConfig
-    height: 370
+    height: 430
     visible: false
     layout:
       type: verticalBox
@@ -3296,6 +3320,35 @@ BossFarmWindow < UIWindow
         text: UNICO
         width: 118
         color: #FFFF00
+
+    UILabel
+      text: CaveBot da hunt (volta ao terminar)
+      text-align: center
+      font: verdana-11px-rounded
+      color: #C455FF
+      height: 14
+      margin-top: 4
+
+    Panel
+      height: 22
+      layout:
+        type: horizontalBox
+        spacing: 3
+      ComboBox
+        id: cbHunt
+        width: 188
+        height: 22
+      BossFarmBtn
+        id: cbAtualizar
+        text: ATUALIZAR
+        width: 67
+        height: 20
+
+    UILabel
+      id: cbAgora
+      text: CaveBot do bot agora: ?
+      color: #7FB2FF
+      height: 14
 
     BossFarmBtn
       id: editPartyList
@@ -3634,6 +3687,9 @@ bossFarmWindow.hour3 = bossFarmWindow:recursiveGetChildById("hour3")
 bossFarmWindow.labelDestino = bossFarmWindow:recursiveGetChildById("labelDestino")
 bossFarmWindow.labelPosNpc = bossFarmWindow:recursiveGetChildById("labelPosNpc")
 bossFarmWindow.toggleModoCave = bossFarmWindow:recursiveGetChildById("toggleModoCave")
+bossFarmWindow.cbHunt = bossFarmWindow:recursiveGetChildById("cbHunt")
+bossFarmWindow.cbAtualizar = bossFarmWindow:recursiveGetChildById("cbAtualizar")
+bossFarmWindow.cbAgora = bossFarmWindow:recursiveGetChildById("cbAgora")
 bossFarmWindow.rotationStatus1 = bossFarmWindow:recursiveGetChildById("rotationStatus1")
 bossFarmWindow.rotationStatus2 = bossFarmWindow:recursiveGetChildById("rotationStatus2")
 bossFarmWindow.rotationStatus3 = bossFarmWindow:recursiveGetChildById("rotationStatus3")
@@ -3757,7 +3813,7 @@ if bossFarmWindow.minimizeButton then
             bossFarmWindow.tabCustom:show()
             bossFarmWindow.tabNpc:show()
             bossFarmWindow.resetGeralButton:show()
-            bossFarmWindow:setHeight(480)
+            bossFarmWindow:setHeight(540)
             BossFarm.mostrarPagina(BossFarm.paginaAtual or 1)
             bossFarmWindow.minimizeButton:setText("-")
         end
@@ -3857,6 +3913,36 @@ if bossFarmWindow.toggleChase then
     bossFarmWindow.toggleChase.onClick = function()
         storage.BossAutoFollowEnabled = not storage.BossAutoFollowEnabled
         BossFarm.atualizarPainel()
+    end
+end
+
+BossFarm.OPCAO_AUTO = "(automatico)"
+
+function BossFarm.preencherCaveBots()
+    local combo = bossFarmWindow and bossFarmWindow.cbHunt
+    if not combo then return 0 end
+    local lista = BossFarm.listarCaveBots()
+    combo.onOptionChange = nil
+    combo:clearOptions()
+    combo:addOption(BossFarm.OPCAO_AUTO)
+    local achou = false
+    for _, nome in ipairs(lista) do
+        combo:addOption(nome)
+        if nome == storage.BossFarmCaveHuntFixa then achou = true end
+    end
+    combo:setCurrentOption(achou and storage.BossFarmCaveHuntFixa or BossFarm.OPCAO_AUTO)
+    combo.onOptionChange = function(_, texto)
+        storage.BossFarmCaveHuntFixa = (texto == BossFarm.OPCAO_AUTO) and "" or texto
+        BossFarm.gravarArquivo()
+        BossFarm.logEvento("CaveBot da hunt: " .. texto)
+    end
+    return #lista
+end
+BossFarm.preencherCaveBots()
+
+if bossFarmWindow.cbAtualizar then
+    bossFarmWindow.cbAtualizar.onClick = function()
+        BossFarm.logEvento(BossFarm.preencherCaveBots() .. " CaveBots do bot encontrados.")
     end
 end
 
@@ -4189,6 +4275,10 @@ function BossFarm.atualizarPainel()
             bossFarmWindow.toggleChase:setText("DESATIVADO")
             bossFarmWindow.toggleChase:setColor("#B03060")
         end
+    end
+
+    if bossFarmWindow.cbAgora then
+        bossFarmWindow.cbAgora:setText("CaveBot do bot agora: " .. tostring(BossFarm.caveAtual() or "?"))
     end
 
     if bossFarmWindow.toggleModoCave then
