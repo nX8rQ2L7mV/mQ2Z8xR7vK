@@ -1,6 +1,6 @@
 setDefaultTab("Main")
 BossFarm = BossFarm or {}
-BossFarm.VERSAO = "3.6"
+BossFarm.VERSAO = "3.7"
 
 if bossFarmWindow then
     bossFarmWindow:destroy()
@@ -63,13 +63,14 @@ storage.BossFarmModoCave = storage.BossFarmModoCave or "UNICO"
 storage.BossFarmDelayEntrada = storage.BossFarmDelayEntrada or 1
 storage.BossFarmCaveHuntFixa = storage.BossFarmCaveHuntFixa or ""
 storage.BossFarmCaveRotacao = storage.BossFarmCaveRotacao or "farmboss"
+storage.BossFarmGotoOriginal = storage.BossFarmGotoOriginal or false
 storage.BossAntiTrapTPEnabled = false
 
 -- CONFIG POR PERSONAGEM: arquivo /BossFarm/<personagem>.json (fora da pasta bot e do storage do vBot).
 -- O storage do vBot e por config e pode falhar ao salvar (ai apos SS/relog voltava horario vazio e rotacoes
 -- desativadas). O arquivo e lido ao carregar o script e tem prioridade; e regravado a cada 1 min se mudar e no SALVAR.
 BossFarm.CAMPOS_HORARIO_ARQ = {"horariosConfigurados", "rotacoesAtivas", "ativasSalvas", "labelConfigurado", "labelPosNpc"}
-BossFarm.CAMPOS_STORAGE_ARQ = {"BossFarmRotationType", "BossFarmModeCount", "BossFarmExecutionMode", "BossFarmCustomList", "BossFarmAvisoNome", "BossFarmModoCave", "BossFarmDelayEntrada", "BossFarmCaveHunt", "BossFarmCaveHuntFixa", "BossFarmCaveRotacao"}
+BossFarm.CAMPOS_STORAGE_ARQ = {"BossFarmRotationType", "BossFarmModeCount", "BossFarmExecutionMode", "BossFarmCustomList", "BossFarmAvisoNome", "BossFarmModoCave", "BossFarmDelayEntrada", "BossFarmCaveHunt", "BossFarmCaveHuntFixa", "BossFarmCaveRotacao", "BossFarmGotoOriginal"}
 function BossFarm.arquivoConfig()
     local ok, nome = pcall(function() return player:getName() end)
     if not ok or type(nome) ~= "string" or nome == "" then return nil end
@@ -986,6 +987,41 @@ macro(500, function()
     BossFarm.estado = "ENTROU SEM HORARIO"
     BossFarm.logEvento("Entrou sem horario com a CaveBot ligada (bug da CaveBot?). Nao comeca rotacao: falando !tp thais.")
     pcall(function() g_game.talk("!tp thais") end)
+end)
+
+BossFarm.GOTO_DIST_BOSS = 127
+BossFarm.gotoNaoForcar = false
+macro(1000, function()
+    local cfgBot = storage.settings
+    if type(cfgBot) ~= "table" or type(cfgBot.gotoMaxDistance) ~= "number" then return end
+    local atual = cfgBot.gotoMaxDistance
+    local original = storage.BossFarmGotoOriginal
+    local emRotacao = storage.BossFarmHorario and storage.BossFarmHorario.rotacaoEmAndamento
+    local naSala = not BossFarm.ativo.isOff() and emRotacao and BossFarm.naZonaBoss(player:getPosition())
+    if naSala then
+        if BossFarm.gotoNaoForcar then return end
+        if original == false then
+            if atual == BossFarm.GOTO_DIST_BOSS then return end
+            storage.BossFarmGotoOriginal = atual
+            cfgBot.gotoMaxDistance = BossFarm.GOTO_DIST_BOSS
+            BossFarm.logEvento("Salas dos bosses: distancia do goto " .. atual .. " -> " .. BossFarm.GOTO_DIST_BOSS .. " (volta ao terminar).")
+            BossFarm.gravarArquivo()
+        elseif atual ~= BossFarm.GOTO_DIST_BOSS then
+            storage.BossFarmGotoOriginal = false
+            BossFarm.gotoNaoForcar = true
+            BossFarm.logEvento("Distancia do goto mudada na mao para " .. atual .. ": mantendo ate o fim da rotacao.")
+            BossFarm.gravarArquivo()
+        end
+        return
+    end
+    BossFarm.gotoNaoForcar = false
+    if original == false then return end
+    storage.BossFarmGotoOriginal = false
+    if type(original) == "number" and atual == BossFarm.GOTO_DIST_BOSS then
+        cfgBot.gotoMaxDistance = original
+        BossFarm.logEvento("Fim das salas dos bosses: distancia do goto voltou para " .. original .. ".")
+    end
+    BossFarm.gravarArquivo()
 end)
 
 BossFarm.AFK_SEG = 900
