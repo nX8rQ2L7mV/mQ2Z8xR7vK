@@ -1,6 +1,6 @@
 setDefaultTab("Main")
 BossFarm = BossFarm or {}
-BossFarm.VERSAO = "2.9"
+BossFarm.VERSAO = "3.0"
 
 if bossFarmWindow then
     bossFarmWindow:destroy()
@@ -187,6 +187,10 @@ function BossFarm.irPara(label)
         local destino = BossFarm.labelDaRota(label) and BossFarm.CAVE_BOSS or storage.BossFarmCaveHunt
         local atual = BossFarm.caveAtual()
         if destino and destino ~= "" and atual ~= destino then
+            if destino == BossFarm.CAVE_BOSS and not BossFarm.naZonaBoss(player:getPosition()) then
+                BossFarm.logEvento("Ignorado ir para '" .. tostring(label) .. "': ainda nao esta la dentro, nao troca para o CaveBot '" .. BossFarm.CAVE_BOSS .. "'.")
+                return
+            end
             if destino == BossFarm.CAVE_BOSS and atual then storage.BossFarmCaveHunt = atual BossFarm.gravarArquivo() end
             if BossFarm.trocarCave(destino) then
                 BossFarm.labelAposTroca = label
@@ -730,8 +734,7 @@ function BossFarm.trocarCave(nome)
 end
 
 function BossFarm.esperaEntrada()
-    local seg = tonumber(storage.BossFarmDelayEntrada) or 1
-    if seg > 0 then CaveBot.delay(math.floor(seg * 1000)) end
+    CaveBot.delay(1000)
     return true
 end
 
@@ -770,6 +773,32 @@ macro(1000, function()
     end
     BossFarm.logEvento("Vigia: 20s fora da area dos bosses (morte/queda/relog). Voltando para o CaveBot da hunt '" .. hunt .. "'.")
     BossFarm.trocarCave(hunt)
+end)
+
+BossFarm.AFK_SEG = 900
+macro(1000, function()
+    local p = player:getPosition()
+    if BossFarm.ativo.isOff() or not BossFarm.naZonaBoss(p) or os.time() - (BossFarm.esperaHorarioUltima or 0) < 5 then
+        BossFarm.afkDesde, BossFarm.afkPos, BossFarm.semBossDesde = nil, nil, nil
+        return
+    end
+    local agora = os.time()
+    if BossFarm.entrou or BossFarm.salaDaPosicao(p) or not BossFarm.semBossDesde then BossFarm.semBossDesde = agora end
+    local chave = p.x .. "," .. p.y .. "," .. p.z
+    if chave ~= BossFarm.afkPos then
+        BossFarm.afkPos = chave
+        BossFarm.afkDesde = agora
+    end
+    local motivo = nil
+    if agora - BossFarm.afkDesde >= BossFarm.AFK_SEG then
+        motivo = "15 min parado no mesmo sqm"
+    elseif agora - BossFarm.semBossDesde >= BossFarm.AFK_SEG then
+        motivo = "15 min sem entrar em nenhum boss"
+    end
+    if not motivo then return end
+    BossFarm.afkDesde, BossFarm.semBossDesde = agora, agora
+    BossFarm.logEvento("AFK: " .. motivo .. " na area dos bosses. Falando !tp thais.")
+    pcall(function() g_game.talk("!tp thais") end)
 end)
 
 BossFarm.PASSE_SEG = 600
@@ -880,6 +909,7 @@ end)
 macro(1000, function()
     if BossFarm.ativo.isOff() then return end
     if not storage.BossAntiTrapTPEnabled then return end
+    if BossFarm.modoSeparado() and BossFarm.caveAtual() ~= BossFarm.CAVE_BOSS then return end
 
     local myPos = player:getPosition()
     if not myPos then return end
@@ -984,6 +1014,7 @@ function BossFarm.aguardarTime()
 end
 
 function BossFarm.aguardarMinuto27()
+    BossFarm.esperaHorarioUltima = os.time()
     if storage.BossFarmModeCount == "1X" then return BossFarm.aguardarTime() end
 
     local min = tonumber(os.date("%M"))
@@ -3249,6 +3280,23 @@ BossFarmWindow < UIWindow
         width: 118
         color: #B03060
 
+    Panel
+      height: 18
+      margin-top: 2
+      layout:
+        type: horizontalBox
+        spacing: 0
+      UILabel
+        text: CAVEBOT:
+        width: 140
+        color: #F0FFF0
+        font: verdana-11px-rounded
+      BossFarmBtn
+        id: toggleModoCave
+        text: UNICO
+        width: 118
+        color: #FFFF00
+
     BossFarmBtn
       id: editPartyList
       text: SETUP AUTO PARTY
@@ -3300,32 +3348,6 @@ BossFarmWindow < UIWindow
       BotTextEdit
         id: labelPosNpc
         width: 168
-        height: 18
-        text-align: center
-
-    Panel
-      id: modoCaveRow
-      height: 20
-      layout:
-        type: horizontalBox
-        spacing: 0
-      UILabel
-        text: CaveBot:
-        color: #CCCCCC
-        width: 55
-      BossFarmBtn
-        id: toggleModoCave
-        text: UNICO
-        width: 100
-        height: 18
-      UILabel
-        text: Delay(s):
-        color: #CCCCCC
-        width: 55
-        text-align: center
-      BotTextEdit
-        id: delayEntrada
-        width: 48
         height: 18
         text-align: center
 
@@ -3612,8 +3634,6 @@ bossFarmWindow.hour3 = bossFarmWindow:recursiveGetChildById("hour3")
 bossFarmWindow.labelDestino = bossFarmWindow:recursiveGetChildById("labelDestino")
 bossFarmWindow.labelPosNpc = bossFarmWindow:recursiveGetChildById("labelPosNpc")
 bossFarmWindow.toggleModoCave = bossFarmWindow:recursiveGetChildById("toggleModoCave")
-bossFarmWindow.delayEntrada = bossFarmWindow:recursiveGetChildById("delayEntrada")
-if bossFarmWindow.delayEntrada then bossFarmWindow.delayEntrada:setText(tostring(storage.BossFarmDelayEntrada)) end
 bossFarmWindow.rotationStatus1 = bossFarmWindow:recursiveGetChildById("rotationStatus1")
 bossFarmWindow.rotationStatus2 = bossFarmWindow:recursiveGetChildById("rotationStatus2")
 bossFarmWindow.rotationStatus3 = bossFarmWindow:recursiveGetChildById("rotationStatus3")
@@ -3847,15 +3867,6 @@ if bossFarmWindow.toggleModoCave then
         BossFarm.logEvento("Modo CaveBot: " .. storage.BossFarmModoCave .. (BossFarm.modoSeparado() and (" (rotacao no CaveBot '" .. BossFarm.CAVE_BOSS .. "')") or ""))
         BossFarm.gravarArquivo()
         BossFarm.atualizarPainel()
-    end
-end
-
-if bossFarmWindow.delayEntrada then
-    bossFarmWindow.delayEntrada.onTextChange = function(widget, texto)
-        local seg = tonumber((tostring(texto or ""):gsub(",", ".")))
-        if not seg or seg < 0 or seg > 30 then return end
-        storage.BossFarmDelayEntrada = seg
-        BossFarm.gravarArquivo()
     end
 end
 
