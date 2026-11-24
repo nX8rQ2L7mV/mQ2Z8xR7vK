@@ -1,6 +1,6 @@
 setDefaultTab("Main")
 BossFarm = BossFarm or {}
-BossFarm.VERSAO = "3.5"
+BossFarm.VERSAO = "3.6"
 
 if bossFarmWindow then
     bossFarmWindow:destroy()
@@ -972,6 +972,22 @@ macro(1000, function()
     BossFarm.desligarAntiTrap(true)
 end)
 
+BossFarm.estavaNaZona = nil
+macro(500, function()
+    local dentro = BossFarm.naZonaBoss(player:getPosition()) and true or false
+    local antes = BossFarm.estavaNaZona
+    BossFarm.estavaNaZona = dentro
+    if antes == nil or antes or not dentro then return end
+    if BossFarm.ativo.isOff() then return end
+    if not (CaveBot and CaveBot.isOn and CaveBot.isOn()) then return end
+    local emRotacao = storage.BossFarmHorario and storage.BossFarmHorario.rotacaoEmAndamento
+    if emRotacao or os.time() <= (BossFarm.passeAte or 0) or os.time() <= (BossFarm.chegadaAutorizadaAte or 0) then return end
+    BossFarm.bloqueioSemHorarioAte = os.time() + 120
+    BossFarm.estado = "ENTROU SEM HORARIO"
+    BossFarm.logEvento("Entrou sem horario com a CaveBot ligada (bug da CaveBot?). Nao comeca rotacao: falando !tp thais.")
+    pcall(function() g_game.talk("!tp thais") end)
+end)
+
 BossFarm.AFK_SEG = 900
 macro(1000, function()
     local p = player:getPosition()
@@ -1004,6 +1020,7 @@ BossFarm.passeAte = 0
 
 function BossFarm.darPasse()
     BossFarm.passeAte = os.time() + BossFarm.PASSE_SEG
+    BossFarm.bloqueioSemHorarioAte = 0
 end
 
 function BossFarm.primeiraLabel()
@@ -1070,6 +1087,7 @@ macro(1000, function()
     if inBossArea then
         local comPasse = os.time() <= (BossFarm.passeAte or 0)
         BossFarm.passeAte = 0
+        if comPasse then BossFarm.chegadaAutorizadaAte = os.time() + 30 end
         if comPasse and BossFarm.modoSeparado() and BossFarm.caveAtual() ~= BossFarm.caveBoss() then
             storage.BossFarmStartForcado = true
             BossFarm.logEvento("Chegou na sala dos TPs: trocando para o CaveBot '" .. BossFarm.caveBoss() .. "'.")
@@ -1214,6 +1232,16 @@ function BossFarm.aguardarTime()
 end
 
 function BossFarm.aguardarMinuto27()
+    if os.time() < (BossFarm.bloqueioSemHorarioAte or 0) then
+        local volta = BossFarm.primeiraLabel()
+        BossFarm.estado = "ENTROU SEM HORARIO"
+        if volta and volta ~= "start" and CaveBot.gotoLabel(volta) then
+            BossFarm.lastLabel = volta
+            return "retry"
+        end
+        delay(1000)
+        return "retry"
+    end
     BossFarm.esperaHorarioUltima = os.time()
     if storage.BossFarmModeCount == "1X" then return BossFarm.aguardarTime() end
 
@@ -4342,6 +4370,9 @@ BossFarm.AJUDA = {
         "e manda ela de volta pra primeira label. Ao voltar pra hunt,",
         "o painel desliga o Anti-TP e o Auto Party sozinho (sem sair",
         "da party: war, quest ou grupo continuam).",
+        "Se mesmo assim a CaveBot entrar na sala dos TPs sem horario",
+        "(ligada), o painel fala !tp thais e nao comeca a rotacao.",
+        "Entrada manual (CaveBot desligada) nao e afetada.",
         "Opcional (caso precise), na aba CAVEBOT:",
         "  - COPIAR TRAVA DO TP: cole numa 'function' logo antes de",
         "    entrar no TP. Faz a mesma trava na propria CaveBot.",
