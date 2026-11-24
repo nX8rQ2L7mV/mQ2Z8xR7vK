@@ -1,6 +1,6 @@
 setDefaultTab("Main")
 BossFarm = BossFarm or {}
-BossFarm.VERSAO = "2.6"
+BossFarm.VERSAO = "2.9"
 
 if bossFarmWindow then
     bossFarmWindow:destroy()
@@ -59,13 +59,15 @@ storage.BossFarmVipExpiration = storage.BossFarmVipExpiration or 0
 storage.BossFarmModeCount = storage.BossFarmModeCount or "3X"
 storage.BossFarmExecutionMode = storage.BossFarmExecutionMode or "SCHEDULE"
 storage.BossFarmAvisoNome = storage.BossFarmAvisoNome or false
+storage.BossFarmModoCave = storage.BossFarmModoCave or "UNICO"
+storage.BossFarmDelayEntrada = storage.BossFarmDelayEntrada or 1
 storage.BossAntiTrapTPEnabled = false
 
 -- CONFIG POR PERSONAGEM: arquivo /BossFarm/<personagem>.json (fora da pasta bot e do storage do vBot).
 -- O storage do vBot e por config e pode falhar ao salvar (ai apos SS/relog voltava horario vazio e rotacoes
 -- desativadas). O arquivo e lido ao carregar o script e tem prioridade; e regravado a cada 1 min se mudar e no SALVAR.
 BossFarm.CAMPOS_HORARIO_ARQ = {"horariosConfigurados", "rotacoesAtivas", "ativasSalvas", "labelConfigurado", "labelPosNpc"}
-BossFarm.CAMPOS_STORAGE_ARQ = {"BossFarmRotationType", "BossFarmModeCount", "BossFarmExecutionMode", "BossFarmCustomList", "BossFarmAvisoNome"}
+BossFarm.CAMPOS_STORAGE_ARQ = {"BossFarmRotationType", "BossFarmModeCount", "BossFarmExecutionMode", "BossFarmCustomList", "BossFarmAvisoNome", "BossFarmModoCave", "BossFarmDelayEntrada", "BossFarmCaveHunt"}
 function BossFarm.arquivoConfig()
     local ok, nome = pcall(function() return player:getName() end)
     if not ok or type(nome) ~= "string" or nome == "" then return nil end
@@ -181,8 +183,594 @@ function BossFarm.irPara(label)
     if label == "start" or string.find(label, "boss") then
         storage.BossAntiTrapTPEnabled = true
     end
+    if BossFarm.modoSeparado() then
+        local destino = BossFarm.labelDaRota(label) and BossFarm.CAVE_BOSS or storage.BossFarmCaveHunt
+        local atual = BossFarm.caveAtual()
+        if destino and destino ~= "" and atual ~= destino then
+            if destino == BossFarm.CAVE_BOSS and atual then storage.BossFarmCaveHunt = atual BossFarm.gravarArquivo() end
+            if BossFarm.trocarCave(destino) then
+                BossFarm.labelAposTroca = label
+                BossFarm.labelAposTrocaAte = os.time() + 5
+                return
+            end
+        end
+    end
     CaveBot.gotoLabel(label)
 end
+
+BossFarm.CAVE_BOSS = "farmboss"
+
+BossFarm.ROTA_CAVE_BOSS = [==[
+label:start
+goto:7668,1051,3
+goto:7670,1051,3
+goto:7676,1051,3
+delaysec:5
+function:return BossFarm.aguardarMinuto27()
+delaysec:1,5
+function:[[
+BossFarm.iniciarNovaRotacao()
+return true
+]]
+delaysec:1,5
+function:[[
+BossFarm.checarProximoCustom()
+return true
+]]
+delaysec:1,5
+goto:7673,1051,3
+goto:7677,1051,3
+goto:7680,1051,3
+goto:7684,1051,3
+goto:7686,1051,3
+goto:7687,1051,3
+goto:7687,1052,3
+goto:7687,1053,3
+goto:7686,1056,3
+goto:7686,1061,3
+goto:7686,1066,3
+goto:7688,1066,3
+goto:7688,1070,3
+goto:7688,1072,3
+function:return BossFarm.esperaEntrada()
+function:[[
+BossFarm.setCurrent(1)
+local p = pos()
+if p.x == 7688 and p.z == 3 and p.y >= 1066 and p.y <= 1074 then
+    return BossFarm.tentarEntrada(p.y - 1065, South)
+end
+return true
+]]
+label:boss1
+goto:7688,1074,3
+function:return BossFarm.esperaEntrada()
+function:[[
+BossFarm.setCurrent(1)
+local p = pos()
+if p.x == 7688 and p.y == 1074 and p.z == 3 then
+    return BossFarm.tentarEntrada(1, South)
+end
+return true
+]]
+goto:7774,1433,3
+goto:7774,1428,3
+goto:7774,1423,3
+goto:7775,1419,3
+goto:7775,1414,3
+goto:7774,1412,3
+label:spawn1
+function:return BossFarm.waitBossDead(1)
+label:boss2
+goto:7687,1069,3
+goto:7687,1065,3
+goto:7687,1063,3
+goto:7687,1061,3
+goto:7691,1061,3
+goto:7694,1061,3
+goto:7696,1061,3
+function:return BossFarm.esperaEntrada()
+function:[[
+BossFarm.setCurrent(2)
+local p = pos()
+if p.x == 7696 and p.y == 1061 and p.z == 3 then
+    return BossFarm.tentarEntrada(2, East)
+end
+return true
+]]
+goto:7699,1278,5
+goto:7699,1273,5
+goto:7703,1273,5
+goto:7706,1269,5
+goto:7707,1266,5
+goto:7704,1265,5
+goto:7700,1265,5
+goto:7700,1263,5
+goto:7700,1258,6
+goto:7695,1254,6
+goto:7690,1255,6
+label:spawn2
+function:return BossFarm.waitBossDead(2)
+label:boss3
+goto:7690,1061,3
+goto:7688,1061,3
+goto:7687,1058,3
+goto:7687,1056,3
+goto:7687,1052,3
+goto:7687,1050,3
+goto:7691,1049,3
+goto:7695,1049,3
+goto:7696,1049,3
+function:return BossFarm.esperaEntrada()
+function:[[
+BossFarm.setCurrent(3)
+local p = pos()
+if p.x == 7696 and p.y == 1049 and p.z == 3 then
+    return BossFarm.tentarEntrada(3, East)
+end
+return true
+]]
+goto:7943,1295,2
+goto:7946,1295,2
+goto:7948,1295,2
+goto:7949,1295,2
+goto:7951,1295,3,0
+goto:7956,1295,4
+goto:7960,1300,4
+goto:7965,1302,4
+goto:7970,1301,4
+goto:7970,1298,4
+goto:7970,1297,4
+goto:7970,1295,4
+label:spawn3
+function:return BossFarm.waitBossDead(3)
+label:boss4
+goto:7690,1049,3
+goto:7687,1049,3
+goto:7687,1044,3
+goto:7687,1042,3
+goto:7687,1038,3
+goto:7690,1037,3
+goto:7693,1035,3
+goto:7695,1033,3
+goto:7696,1033,3
+function:return BossFarm.esperaEntrada()
+function:[[
+BossFarm.setCurrent(4)
+local p = pos()
+if p.x == 7696 and p.y == 1033 and p.z == 3 then
+    return BossFarm.tentarEntrada(4, East)
+end
+return true
+]]
+goto:7934,1144,4
+goto:7934,1141,4
+goto:7934,1140,4
+goto:7934,1135,5
+goto:7938,1130,5
+goto:7938,1125,5
+goto:7933,1123,5
+label:spawn4
+function:return BossFarm.waitBossDead(4)
+label:boss5
+goto:7690,1036,3
+goto:7686,1037,3
+goto:7683,1037,3
+goto:7681,1034,3
+goto:7681,1030,3
+goto:7681,1027,3
+function:return BossFarm.esperaEntrada()
+function:[[
+BossFarm.setCurrent(5)
+local p = pos()
+if p.x == 7681 and p.y == 1027 and p.z == 3 then
+    return BossFarm.tentarEntrada(5, North)
+end
+return true
+]]
+goto:7935,1205,4
+goto:7935,1208,4
+goto:7935,1212,4
+goto:7935,1214,4
+goto:7935,1215,4
+goto:7935,1220,5
+goto:7935,1225,5
+goto:7935,1228,5
+label:spawn5
+function:return BossFarm.waitBossDead(5)
+label:boss6
+goto:7681,1034,3
+goto:7679,1036,3
+goto:7674,1037,3
+goto:7671,1037,3
+goto:7670,1033,3
+goto:7670,1030,3
+goto:7670,1027,3
+function:return BossFarm.esperaEntrada()
+function:[[
+BossFarm.setCurrent(6)
+local p = pos()
+if p.x == 7670 and p.y == 1027 and p.z == 3 then
+    return BossFarm.tentarEntrada(6, North)
+end
+return true
+]]
+goto:7774,1362,2
+goto:7777,1362,2
+goto:7778,1362,2
+goto:7783,1362,3
+goto:7788,1360,3
+goto:7793,1360,3
+goto:7798,1356,3
+goto:7799,1351,3
+goto:7799,1348,3
+label:spawn6
+function:return BossFarm.waitBossDead(6)
+label:boss7
+goto:7670,1034,3
+goto:7667,1034,3
+goto:7663,1034,3
+goto:7658,1034,3
+goto:7658,1030,3
+goto:7658,1027,3
+function:return BossFarm.esperaEntrada()
+function:[[
+BossFarm.setCurrent(7)
+local p = pos()
+if p.x == 7658 and p.y == 1027 and p.z == 3 then
+    return BossFarm.tentarEntrada(7, North)
+end
+return true
+]]
+goto:7699,1203,4
+goto:7699,1199,4
+goto:7699,1194,4
+goto:7699,1191,4
+goto:7698,1188,4
+goto:7698,1183,4
+goto:7698,1179,4
+label:spawn7
+function:return BossFarm.waitBossDead(7)
+label:boss8
+goto:7658,1034,3
+goto:7655,1036,3
+goto:7649,1036,3
+goto:7645,1036,3
+goto:7645,1033,3
+goto:7644,1030,3
+goto:7644,1026,3
+function:return BossFarm.esperaEntrada()
+function:[[
+BossFarm.setCurrent(8)
+local p = pos()
+if p.x == 7644 and p.y == 1026 and p.z == 3 then
+    return BossFarm.tentarEntrada(8, North)
+end
+return true
+]]
+goto:7844,1116,5
+goto:7844,1120,5
+goto:7844,1126,5
+goto:7844,1130,5
+goto:7844,1133,5
+label:spawn8
+function:return BossFarm.waitBossDead(8)
+label:boss9
+goto:7644,1035,3
+goto:7644,1036,3
+goto:7644,1037,3
+goto:7639,1038,3
+goto:7636,1038,3
+goto:7632,1038,3
+function:return BossFarm.esperaEntrada()
+function:[[
+BossFarm.setCurrent(9)
+local p = pos()
+if p.x == 7632 and p.y == 1038 and p.z == 3 then
+    return BossFarm.tentarEntrada(9, West)
+end
+return true
+]]
+goto:7805,1229,3
+goto:7805,1225,3
+goto:7805,1222,3
+goto:7805,1221,3
+goto:7810,1218,4
+goto:7815,1218,4
+goto:7816,1216,4,0
+goto:7821,1212,3
+goto:7822,1207,3
+goto:7824,1202,3
+goto:7825,1197,3
+goto:7825,1192,3
+goto:7823,1187,3
+goto:7819,1187,3,0
+goto:7814,1186,2
+label:spawn9
+function:return BossFarm.waitBossDead(9)
+label:boss10
+goto:7640,1038,3
+goto:7643,1038,3
+goto:7644,1041,3
+goto:7644,1045,3
+goto:7644,1049,3
+goto:7644,1053,3
+goto:7641,1053,3
+goto:7637,1052,3
+goto:7634,1052,3
+goto:7632,1052,3
+function:return BossFarm.esperaEntrada()
+function:[[
+BossFarm.setCurrent(10)
+local p = pos()
+if p.x == 7632 and p.y == 1052 and p.z == 3 then
+    return BossFarm.tentarEntrada(10, West)
+end
+return true
+]]
+goto:7638,1130,3
+goto:7639,1134,3
+goto:7640,1137,3
+goto:7642,1140,3
+goto:7639,1140,3
+goto:7638,1140,3
+goto:7636,1140,3,0
+goto:7631,1140,2
+goto:7630,1135,2
+goto:7627,1130,2
+goto:7627,1125,2
+goto:7622,1125,2
+goto:7617,1123,2
+goto:7612,1123,2
+goto:7612,1126,2,0
+goto:7615,1131,3
+goto:7615,1136,3
+goto:7612,1136,3
+label:spawn10
+function:return BossFarm.waitBossDead(10)
+label:boss11
+goto:7638,1052,3
+goto:7640,1052,3
+goto:7643,1052,3
+goto:7643,1057,3
+goto:7643,1063,3
+goto:7640,1064,3
+goto:7636,1064,3
+goto:7633,1064,3
+goto:7631,1064,3
+function:return BossFarm.esperaEntrada()
+function:[[
+BossFarm.setCurrent(11)
+local p = pos()
+if p.x == 7631 and p.y == 1064 and p.z == 3 then
+    return BossFarm.tentarEntrada(11, West)
+end
+return true
+]]
+goto:7799,1116,4
+goto:7794,1118,4
+goto:7790,1118,4
+goto:7786,1118,4
+goto:7786,1127,4
+goto:7783,1127,4
+label:spawn11
+function:return BossFarm.waitBossDead(11)
+label:boss12
+goto:7639,1065,3
+goto:7643,1065,3
+goto:7644,1067,3
+goto:7644,1071,3
+goto:7644,1074,3
+goto:7644,1075,3
+goto:7644,1077,3
+function:return BossFarm.esperaEntrada()
+function:[[
+BossFarm.setCurrent(12)
+local p = pos()
+if p.x == 7644 and p.y == 1077 and p.z == 3 then
+    return BossFarm.tentarEntrada(12, South)
+end
+return true
+]]
+goto:7936,1386,4
+goto:7938,1390,4
+goto:7942,1388,4
+goto:7942,1381,4
+goto:7944,1378,4
+label:spawn12
+function:return BossFarm.waitBossDead(12)
+label:boss13
+goto:7645,1070,3
+goto:7645,1068,3
+goto:7648,1068,3
+goto:7651,1067,3
+goto:7656,1067,3
+goto:7658,1073,3
+goto:7657,1074,3
+goto:7657,1075,3
+goto:7657,1077,3
+function:return BossFarm.esperaEntrada()
+function:[[
+BossFarm.setCurrent(13)
+local p = pos()
+if p.x == 7657 and p.y == 1077 and p.z == 3 then
+    return BossFarm.tentarEntrada(13, South)
+end
+return true
+]]
+goto:7704,1153,4
+goto:7704,1149,4
+goto:7704,1143,4
+goto:7704,1137,4
+goto:7704,1132,4
+goto:7704,1128,4
+label:spawn13
+function:return BossFarm.waitBossDead(13)
+label:boss14
+goto:7658,1070,3
+goto:7660,1067,3
+goto:7664,1067,3
+goto:7667,1067,3
+goto:7669,1071,3
+goto:7668,1073,3
+goto:7668,1075,3
+goto:7668,1077,3
+function:return BossFarm.esperaEntrada()
+function:[[
+BossFarm.setCurrent(14)
+local p = pos()
+if p.x == 7668 and p.y == 1077 and p.z == 3 then
+    return BossFarm.tentarEntrada(14, South)
+end
+return true
+]]
+goto:7791,1277,4
+goto:7791,1283,4
+goto:7791,1287,4
+goto:7791,1292,4
+label:spawn14
+function:return BossFarm.waitBossDead(14)
+label:boss15
+goto:7668,1069,3
+goto:7672,1068,3
+goto:7677,1068,3
+goto:7678,1071,3
+goto:7678,1075,3
+goto:7678,1077,3
+function:return BossFarm.esperaEntrada()
+function:[[
+BossFarm.setCurrent(15)
+local p = pos()
+if p.x == 7678 and p.y == 1077 and p.z == 3 then
+    return BossFarm.tentarEntrada(15, South)
+end
+return true
+]]
+goto:7697,1348,5
+goto:7697,1349,5
+goto:7697,1349,5
+goto:7697,1354,5
+goto:7697,1358,5
+goto:7697,1363,5
+goto:7695,1366,5
+goto:7696,1368,5
+goto:7696,1372,5
+goto:7696,1374,5
+goto:7696,1374,5
+label:spawn15
+function:return BossFarm.waitBossDead(15)
+delaysec:2
+function:return BossFarm.checarPendentesFinal()
+label:npc
+delaysec:3
+goto:7678,1069,3
+goto:7674,1068,3
+goto:7670,1068,3
+goto:7665,1068,3
+goto:7665,1065,3
+goto:7665,1061,3
+goto:7665,1051,3
+goto:7665,1051,3
+delaysec:1
+function:return BossFarm.fazerNPC()
+]==]
+
+function BossFarm.arquivoCaveBoss()
+    local nomeConfig = nil
+    pcall(function() nomeConfig = modules.game_bot.contentsPanel.config:getCurrentOption().text end)
+    if not nomeConfig then return nil end
+    return "/bot/" .. nomeConfig .. "/cavebot_configs/" .. BossFarm.CAVE_BOSS .. ".cfg"
+end
+
+function BossFarm.instalarCaveBoss()
+    local arq = BossFarm.arquivoCaveBoss()
+    if not (arq and g_resources and g_resources.writeFileContents) then return false end
+    local okL, atual = pcall(function()
+        if not g_resources.fileExists(arq) then return nil end
+        return g_resources.readFileContents(arq)
+    end)
+    if okL and atual == BossFarm.ROTA_CAVE_BOSS then return true end
+    local ok, err = pcall(g_resources.writeFileContents, arq, BossFarm.ROTA_CAVE_BOSS)
+    if ok then
+        BossFarm.logEvento("CaveBot '" .. BossFarm.CAVE_BOSS .. "' criado/atualizado em " .. arq)
+    else
+        BossFarm.logEvento("ERRO ao criar " .. arq .. ": " .. tostring(err))
+    end
+    return ok
+end
+
+function BossFarm.modoSeparado()
+    return storage.BossFarmModoCave == "SEPARADO"
+end
+
+function BossFarm.labelDaRota(label)
+    label = tostring(label or ""):lower()
+    return label == "start" or label == "npc" or label:match("^boss%d+$") ~= nil or label:match("^spawn%d+$") ~= nil
+end
+
+function BossFarm.caveAtual()
+    if not (CaveBot and CaveBot.getCurrentProfile) then return nil end
+    local ok, nome = pcall(CaveBot.getCurrentProfile)
+    if ok and nome then return nome end
+    return nil
+end
+
+function BossFarm.trocarCave(nome)
+    if not (CaveBot and CaveBot.setCurrentProfile) then
+        BossFarm.logEvento("Seu vBot nao permite trocar o CaveBot por script (falta setCurrentProfile).")
+        return false
+    end
+    if nome == BossFarm.CAVE_BOSS then BossFarm.instalarCaveBoss() end
+    local ok, err = pcall(CaveBot.setCurrentProfile, nome)
+    if not ok or BossFarm.caveAtual() ~= nome then
+        BossFarm.logEvento("Erro ao trocar para o CaveBot '" .. tostring(nome) .. "': " .. tostring(err or "perfil nao existe"))
+        return false
+    end
+    BossFarm.logEvento("CaveBot trocado para '" .. nome .. "'.")
+    return true
+end
+
+function BossFarm.esperaEntrada()
+    local seg = tonumber(storage.BossFarmDelayEntrada) or 1
+    if seg > 0 then CaveBot.delay(math.floor(seg * 1000)) end
+    return true
+end
+
+macro(100, function()
+    local label = BossFarm.labelAposTroca
+    if not label then return end
+    if CaveBot.gotoLabel(label) then
+        BossFarm.labelAposTroca = nil
+    elseif os.time() > (BossFarm.labelAposTrocaAte or 0) then
+        BossFarm.labelAposTroca = nil
+        BossFarm.logEvento("Label '" .. label .. "' nao existe no CaveBot '" .. tostring(BossFarm.caveAtual()) .. "'.")
+    end
+end)
+
+function BossFarm.naZonaBoss(p)
+    return p and p.x >= 7550 and p.x <= 8050 and p.y >= 1000 and p.y <= 1500
+end
+
+BossFarm.foraDaZonaDesde = nil
+macro(1000, function()
+    if not BossFarm.modoSeparado() or BossFarm.caveAtual() ~= BossFarm.CAVE_BOSS then
+        BossFarm.foraDaZonaDesde = nil
+        return
+    end
+    if BossFarm.naZonaBoss(player:getPosition()) then
+        BossFarm.foraDaZonaDesde = nil
+        return
+    end
+    BossFarm.foraDaZonaDesde = BossFarm.foraDaZonaDesde or os.time()
+    if os.time() - BossFarm.foraDaZonaDesde < 20 then return end
+    BossFarm.foraDaZonaDesde = nil
+    local hunt = storage.BossFarmCaveHunt
+    if not hunt or hunt == "" then
+        BossFarm.logEvento("Vigia: fora da area dos bosses no CaveBot '" .. BossFarm.CAVE_BOSS .. "', mas o CaveBot da hunt nao e conhecido. Troque manualmente.")
+        return
+    end
+    BossFarm.logEvento("Vigia: 20s fora da area dos bosses (morte/queda/relog). Voltando para o CaveBot da hunt '" .. hunt .. "'.")
+    BossFarm.trocarCave(hunt)
+end)
 
 BossFarm.PASSE_SEG = 600
 BossFarm.passeAte = 0
@@ -240,16 +828,26 @@ macro(500, function()
     end
 end)
 
+function BossFarm.noLobby(p)
+    return p and p.z == 3 and p.x >= 7610 and p.x <= 7700 and p.y >= 1020 and p.y <= 1084
+end
+
 macro(1000, function()
     if BossFarm.ativo.isOff() then return end
 
     local myPos = player:getPosition()
     if not myPos then return end
 
-    local inBossArea = (myPos.z == 3 and myPos.x >= 7610 and myPos.x <= 7700 and myPos.y >= 1020 and myPos.y <= 1084)
+    local inBossArea = BossFarm.noLobby(myPos)
 
     if inBossArea then
+        local comPasse = os.time() <= (BossFarm.passeAte or 0)
         BossFarm.passeAte = 0
+        if comPasse and BossFarm.modoSeparado() and BossFarm.caveAtual() ~= BossFarm.CAVE_BOSS then
+            storage.BossFarmStartForcado = true
+            BossFarm.logEvento("Chegou na sala dos TPs: trocando para o CaveBot '" .. BossFarm.CAVE_BOSS .. "'.")
+            BossFarm.irPara("start")
+        end
 
         if not storage.BossAntiTrapTPEnabled then
             storage.BossAntiTrapTPEnabled = true
@@ -1439,9 +2037,12 @@ function BossFarm.logEvento(texto)
     print("[Boss Farm] " .. texto)
 end
 
+if BossFarm.modoSeparado() then BossFarm.instalarCaveBoss() end
+
 function BossFarm.setCurrent(boss)
     if BossFarm.currentBoss ~= boss then
         BossFarm.currentBoss = boss
+        BossFarm.voltasPorta = 0
         BossFarm.entrou = false
         BossFarm.derrotou = false
         BossFarm.teleportado = false
@@ -1654,11 +2255,28 @@ function BossFarm.waitBossDead(boss)
         BossFarm.entrou = true
     end
 
+    if not BossFarm.entrou and BossFarm.noLobby(player:getPosition()) then
+        BossFarm.voltasPorta = (BossFarm.voltasPorta or 0) + 1
+        if BossFarm.voltasPorta <= 3 then
+            BossFarm.estado = "NAO ENTROU - VOLTANDO NA PORTA " .. BossFarm.voltasPorta .. "/3"
+            BossFarm.logEvento("Checkin: Boss " .. boss .. " ainda no lobby dos TPs, nao entrou. Voltando na porta (" .. BossFarm.voltasPorta .. "/3).")
+            BossFarm.esperandoEntrada = false
+            BossFarm.irPara(BossFarm.label[boss])
+            return "retry"
+        end
+        BossFarm.logEvento("Checkin: Boss " .. boss .. " nao entrou em 3 voltas na porta. Pulando como na porta ocupada.")
+        BossFarm.esperandoEntrada = false
+        BossFarm.tentativaEntrada = 3
+        BossFarm.voltasPorta = 0
+        return BossFarm.tentarEntrada(boss, nil)
+    end
+
     if not BossFarm.entrou then
         BossFarm.estado = "AGUARDANDO ENTRADA"
         delay(500)
         return "retry"
     end
+    BossFarm.voltasPorta = 0
 
     if not BossFarm.derrotou then
         BossFarm.estado = "AGUARDANDO DERROTA"
@@ -2507,7 +3125,7 @@ BossFarmWindow < UIWindow
 
   Panel
     id: pageConfig
-    height: 350
+    height: 370
     visible: false
     layout:
       type: verticalBox
@@ -2682,6 +3300,32 @@ BossFarmWindow < UIWindow
       BotTextEdit
         id: labelPosNpc
         width: 168
+        height: 18
+        text-align: center
+
+    Panel
+      id: modoCaveRow
+      height: 20
+      layout:
+        type: horizontalBox
+        spacing: 0
+      UILabel
+        text: CaveBot:
+        color: #CCCCCC
+        width: 55
+      BossFarmBtn
+        id: toggleModoCave
+        text: UNICO
+        width: 100
+        height: 18
+      UILabel
+        text: Delay(s):
+        color: #CCCCCC
+        width: 55
+        text-align: center
+      BotTextEdit
+        id: delayEntrada
+        width: 48
         height: 18
         text-align: center
 
@@ -2967,6 +3611,9 @@ bossFarmWindow.hour2 = bossFarmWindow:recursiveGetChildById("hour2")
 bossFarmWindow.hour3 = bossFarmWindow:recursiveGetChildById("hour3")
 bossFarmWindow.labelDestino = bossFarmWindow:recursiveGetChildById("labelDestino")
 bossFarmWindow.labelPosNpc = bossFarmWindow:recursiveGetChildById("labelPosNpc")
+bossFarmWindow.toggleModoCave = bossFarmWindow:recursiveGetChildById("toggleModoCave")
+bossFarmWindow.delayEntrada = bossFarmWindow:recursiveGetChildById("delayEntrada")
+if bossFarmWindow.delayEntrada then bossFarmWindow.delayEntrada:setText(tostring(storage.BossFarmDelayEntrada)) end
 bossFarmWindow.rotationStatus1 = bossFarmWindow:recursiveGetChildById("rotationStatus1")
 bossFarmWindow.rotationStatus2 = bossFarmWindow:recursiveGetChildById("rotationStatus2")
 bossFarmWindow.rotationStatus3 = bossFarmWindow:recursiveGetChildById("rotationStatus3")
@@ -3190,6 +3837,25 @@ if bossFarmWindow.toggleChase then
     bossFarmWindow.toggleChase.onClick = function()
         storage.BossAutoFollowEnabled = not storage.BossAutoFollowEnabled
         BossFarm.atualizarPainel()
+    end
+end
+
+if bossFarmWindow.toggleModoCave then
+    bossFarmWindow.toggleModoCave.onClick = function()
+        storage.BossFarmModoCave = BossFarm.modoSeparado() and "UNICO" or "SEPARADO"
+        if BossFarm.modoSeparado() then BossFarm.instalarCaveBoss() end
+        BossFarm.logEvento("Modo CaveBot: " .. storage.BossFarmModoCave .. (BossFarm.modoSeparado() and (" (rotacao no CaveBot '" .. BossFarm.CAVE_BOSS .. "')") or ""))
+        BossFarm.gravarArquivo()
+        BossFarm.atualizarPainel()
+    end
+end
+
+if bossFarmWindow.delayEntrada then
+    bossFarmWindow.delayEntrada.onTextChange = function(widget, texto)
+        local seg = tonumber((tostring(texto or ""):gsub(",", ".")))
+        if not seg or seg < 0 or seg > 30 then return end
+        storage.BossFarmDelayEntrada = seg
+        BossFarm.gravarArquivo()
     end
 end
 
@@ -3511,6 +4177,16 @@ function BossFarm.atualizarPainel()
         else
             bossFarmWindow.toggleChase:setText("DESATIVADO")
             bossFarmWindow.toggleChase:setColor("#B03060")
+        end
+    end
+
+    if bossFarmWindow.toggleModoCave then
+        if BossFarm.modoSeparado() then
+            bossFarmWindow.toggleModoCave:setText("SEPARADO")
+            bossFarmWindow.toggleModoCave:setColor("#00FA9A")
+        else
+            bossFarmWindow.toggleModoCave:setText("UNICO")
+            bossFarmWindow.toggleModoCave:setColor("#FFFF00")
         end
     end
 
