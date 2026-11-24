@@ -937,6 +937,41 @@ macro(1000, function()
     BossFarm.trocarCave(hunt)
 end)
 
+macro(250, function()
+    if BossFarm.ativo.isOff() then return end
+    if not (CaveBot and CaveBot.lastReachedLabel and CaveBot.isOn and CaveBot.isOn()) then return end
+    local ok, ultima = pcall(CaveBot.lastReachedLabel)
+    if not ok or not ultima then return end
+    local alvo = tostring((storage.BossFarmHorario and storage.BossFarmHorario.labelConfigurado) or "farmboss"):lower()
+    if tostring(ultima):lower() ~= alvo then return end
+    if os.time() <= (BossFarm.passeAte or 0) then return end
+    if BossFarm.naZonaBoss(player:getPosition()) then return end
+    if os.time() - (BossFarm.ultimaTravaAuto or 0) < 3 then return end
+    BossFarm.ultimaTravaAuto = os.time()
+    local volta = BossFarm.primeiraLabel()
+    if volta and tostring(volta):lower() ~= alvo and CaveBot.gotoLabel(volta) then
+        BossFarm.lastLabel = volta
+        BossFarm.estado = "FARMBOSS SEM HORARIO"
+        BossFarm.logEvento("Farmboss sem horario! Nao entra no TP. Voltando para a 1a label: " .. volta)
+    else
+        BossFarm.logEvento("Farmboss sem horario! Nao achei outra label pra voltar na CaveBot.")
+    end
+end)
+
+BossFarm.foraAntiTrapDesde = nil
+macro(1000, function()
+    local ligado = storage.BossAntiTrapTPEnabled or storage.BossFarmStartForcado
+    if BossFarm.ativo.isOff() or not ligado or BossFarm.naZonaBoss(player:getPosition()) or os.time() <= (BossFarm.passeAte or 0) then
+        BossFarm.foraAntiTrapDesde = nil
+        return
+    end
+    BossFarm.foraAntiTrapDesde = BossFarm.foraAntiTrapDesde or os.time()
+    if os.time() - BossFarm.foraAntiTrapDesde < 60 then return end
+    BossFarm.foraAntiTrapDesde = nil
+    BossFarm.logEvento("Fora da area dos bosses ha 60s: desligando Anti-TP e Auto Party (automatico).")
+    BossFarm.desligarAntiTrap()
+end)
+
 BossFarm.AFK_SEG = 900
 macro(1000, function()
     local p = player:getPosition()
@@ -2981,15 +3016,6 @@ BossFarmAjudaWindow < MainWindow
     height: 20
     color: #FFD700
 
-  BossFarmBtn
-    id: copiarInicio
-    text: COPIAR FUNCAO DO INICIO
-    anchors.left: prev.right
-    anchors.bottom: parent.bottom
-    margin-left: 4
-    width: 180
-    height: 20
-    color: #FFD700
 
   BossFarmBtn
     id: fechar
@@ -4258,8 +4284,8 @@ BossFarm.preencherCaveBots()
 
 BossFarm.AJUDA = {
     {"PASSO A PASSO - CONFIGURAR A PRIMEIRA VEZ", "#00FF7F", {
-        "Siga os passos na ordem. Os botoes no rodape desta janela",
-        "copiam as functions que vao na sua CaveBot de hunt.",
+        "Siga os passos na ordem. O botao no rodape desta janela copia",
+        "a unica function que vai na sua CaveBot de hunt.",
     }},
     {"1 - ROTACAO  (aba CONFIG)", "#00FFFF", {
         "Escolha o tipo de rotacao:",
@@ -4299,8 +4325,10 @@ BossFarm.AJUDA = {
         "    junto com os outros checkins da hunt.",
         "  - Crie a label do IR P/ BOSSES com os goto que saem da cave",
         "    ate dentro da sala dos TPs.",
-        "  - COPIAR FUNCAO DO INICIO (rodape): cole numa 'function' no",
-        "    inicio da CaveBot de hunt.",
+        "Pronto: o resto e automatico. Se a CaveBot cair na label do",
+        "IR P/ BOSSES fora do horario, o painel nao deixa entrar no TP",
+        "e manda ela de volta pra primeira label. Ao voltar pra hunt,",
+        "o painel desliga o Anti-TP e o Auto Party sozinho.",
         "VOLTAR CAVE: label da hunt pra onde ele volta no fim.",
         "So precisa no CaveBot UNICO.",
     }},
@@ -4337,9 +4365,6 @@ function BossFarm.abrirAjuda()
         j.fechar.onClick = function() j:hide() end
         j.copiarFuncao.onClick = function()
             BossFarm.copiarTexto("return BossFarm.verificarHorario()", "Funcao do horario")
-        end
-        j.copiarInicio.onClick = function()
-            BossFarm.copiarTexto("BossFarm.desligarAntiTrap()\n\nreturn true", "Funcao do inicio")
         end
         for _, sec in ipairs(BossFarm.AJUDA) do
             local t = g_ui.createWidget("BossFarmAjudaTitulo", j.conteudo)
