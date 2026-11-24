@@ -1,6 +1,6 @@
 setDefaultTab("Main")
 BossFarm = BossFarm or {}
-BossFarm.VERSAO = "3.7"
+BossFarm.VERSAO = "3.8"
 
 if bossFarmWindow then
     bossFarmWindow:destroy()
@@ -991,25 +991,53 @@ end)
 
 BossFarm.GOTO_DIST_BOSS = 127
 BossFarm.gotoNaoForcar = false
+
+function BossFarm.barraGoto()
+    local w = BossFarm.barraGotoCache
+    local vivo = false
+    if w then pcall(function() vivo = not w:isDestroyed() end) end
+    if vivo then return w end
+    BossFarm.barraGotoCache = nil
+    if os.time() < (BossFarm.barraGotoProcura or 0) then return nil end
+    BossFarm.barraGotoProcura = os.time() + 30
+    local function procurar(pai, prof)
+        if prof > 15 then return nil end
+        for _, f in ipairs(pai:getChildren()) do
+            local ok, eh = pcall(function() return f.scroll and f.text and tostring(f.text:getText()):find("GoTo: %d+$") end)
+            if ok and eh then return f end
+            local achou = procurar(f, prof + 1)
+            if achou then return achou end
+        end
+    end
+    local ok, achou = pcall(procurar, g_ui.getRootWidget(), 0)
+    if ok and achou then BossFarm.barraGotoCache = achou end
+    return BossFarm.barraGotoCache
+end
+
+function BossFarm.definirGoto(valor)
+    local w = BossFarm.barraGoto()
+    if w then pcall(function() w.scroll:setValue(valor) end) end
+    storage.settings.gotoMaxDistance = valor
+end
+
 macro(1000, function()
     local cfgBot = storage.settings
     if type(cfgBot) ~= "table" or type(cfgBot.gotoMaxDistance) ~= "number" then return end
     local atual = cfgBot.gotoMaxDistance
     local original = storage.BossFarmGotoOriginal
-    local emRotacao = storage.BossFarmHorario and storage.BossFarmHorario.rotacaoEmAndamento
-    local naSala = not BossFarm.ativo.isOff() and emRotacao and BossFarm.naZonaBoss(player:getPosition())
+    local naSala = not BossFarm.ativo.isOff() and BossFarm.naZonaBoss(player:getPosition())
     if naSala then
         if BossFarm.gotoNaoForcar then return end
         if original == false then
             if atual == BossFarm.GOTO_DIST_BOSS then return end
             storage.BossFarmGotoOriginal = atual
-            cfgBot.gotoMaxDistance = BossFarm.GOTO_DIST_BOSS
+            BossFarm.definirGoto(BossFarm.GOTO_DIST_BOSS)
             BossFarm.logEvento("Salas dos bosses: distancia do goto " .. atual .. " -> " .. BossFarm.GOTO_DIST_BOSS .. " (volta ao terminar).")
             BossFarm.gravarArquivo()
         elseif atual ~= BossFarm.GOTO_DIST_BOSS then
             storage.BossFarmGotoOriginal = false
             BossFarm.gotoNaoForcar = true
-            BossFarm.logEvento("Distancia do goto mudada na mao para " .. atual .. ": mantendo ate o fim da rotacao.")
+            BossFarm.logEvento("Distancia do goto mudada na mao para " .. atual .. ": mantendo ate sair das salas.")
             BossFarm.gravarArquivo()
         end
         return
@@ -1018,8 +1046,8 @@ macro(1000, function()
     if original == false then return end
     storage.BossFarmGotoOriginal = false
     if type(original) == "number" and atual == BossFarm.GOTO_DIST_BOSS then
-        cfgBot.gotoMaxDistance = original
-        BossFarm.logEvento("Fim das salas dos bosses: distancia do goto voltou para " .. original .. ".")
+        BossFarm.definirGoto(original)
+        BossFarm.logEvento("Saiu das salas dos bosses: distancia do goto voltou para " .. original .. ".")
     end
     BossFarm.gravarArquivo()
 end)
