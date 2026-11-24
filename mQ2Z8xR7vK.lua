@@ -163,12 +163,12 @@ function BossFarm.iniciarStart()
     return true
 end
 
-function BossFarm.desligarAntiTrap()
+function BossFarm.desligarAntiTrap(semSairParty)
     storage.BossAntiTrapTPEnabled = false
     storage.BossFarmStartForcado = false
     storage.autoPartyEnabled = false
     local okS, shield = pcall(function() return player:getShield() end)
-    if okS and (shield or 0) >= 3 and g_game.partyLeave then
+    if not semSairParty and okS and (shield or 0) >= 3 and g_game.partyLeave then
         g_game.partyLeave()
         BossFarm.logEvento("Saiu da party.")
     end
@@ -968,8 +968,8 @@ macro(1000, function()
     BossFarm.foraAntiTrapDesde = BossFarm.foraAntiTrapDesde or os.time()
     if os.time() - BossFarm.foraAntiTrapDesde < 60 then return end
     BossFarm.foraAntiTrapDesde = nil
-    BossFarm.logEvento("Fora da area dos bosses ha 60s: desligando Anti-TP e Auto Party (automatico).")
-    BossFarm.desligarAntiTrap()
+    BossFarm.logEvento("Fora da area dos bosses ha 60s: desligando Anti-TP e Auto Party (automatico, continua na party).")
+    BossFarm.desligarAntiTrap(true)
 end)
 
 BossFarm.AFK_SEG = 900
@@ -2992,7 +2992,7 @@ BossFarmAjudaWindow < MainWindow
     anchors.top: parent.top
     anchors.left: parent.left
     anchors.right: parent.right
-    anchors.bottom: copiarFuncao.top
+    anchors.bottom: fechar.top
     margin-right: 14
     margin-bottom: 6
     vertical-scrollbar: conteudoScroll
@@ -3006,25 +3006,6 @@ BossFarmAjudaWindow < MainWindow
     anchors.right: parent.right
     step: 28
     pixels-scroll: true
-
-  BossFarmBtn
-    id: copiarFuncao
-    text: COPIAR FUNCAO DO HORARIO
-    anchors.left: parent.left
-    anchors.bottom: parent.bottom
-    width: 180
-    height: 20
-    color: #FFD700
-
-  BossFarmBtn
-    id: copiarTrava
-    text: COPIAR TRAVA DO TP
-    anchors.left: prev.right
-    anchors.bottom: parent.bottom
-    margin-left: 4
-    width: 150
-    height: 20
-    color: #FFA500
 
 
   BossFarmBtn
@@ -3885,6 +3866,25 @@ BossFarmWindow < UIWindow
       color: #FFD700
       margin-top: 3
 
+    Panel
+      height: 20
+      margin-top: 3
+      layout:
+        type: horizontalBox
+        spacing: 3
+      BossFarmBtn
+        id: copiarTravaButton
+        text: COPIAR TRAVA DO TP
+        width: 127
+        height: 20
+        color: #FFA500
+      BossFarmBtn
+        id: copiarInicioButton
+        text: COPIAR INICIO CAVE
+        width: 128
+        height: 20
+        color: #FFA500
+
     BossFarmBtn
       id: helpCaveButton
       text: COMO CONFIGURAR (HELP)
@@ -4017,6 +4017,8 @@ bossFarmWindow.helpButton = bossFarmWindow:recursiveGetChildById("helpButton")
 bossFarmWindow.copiarCaveButton = bossFarmWindow:recursiveGetChildById("copiarCaveButton")
 bossFarmWindow.copiarFuncaoButton = bossFarmWindow:recursiveGetChildById("copiarFuncaoButton")
 bossFarmWindow.helpCaveButton = bossFarmWindow:recursiveGetChildById("helpCaveButton")
+bossFarmWindow.copiarTravaButton = bossFarmWindow:recursiveGetChildById("copiarTravaButton")
+bossFarmWindow.copiarInicioButton = bossFarmWindow:recursiveGetChildById("copiarInicioButton")
 bossFarmWindow.cbRotacao = bossFarmWindow:recursiveGetChildById("cbRotacao")
 bossFarmWindow.rotationStatus1 = bossFarmWindow:recursiveGetChildById("rotationStatus1")
 bossFarmWindow.rotationStatus2 = bossFarmWindow:recursiveGetChildById("rotationStatus2")
@@ -4294,8 +4296,8 @@ BossFarm.preencherCaveBots()
 
 BossFarm.AJUDA = {
     {"PASSO A PASSO - CONFIGURAR A PRIMEIRA VEZ", "#00FF7F", {
-        "Siga os passos na ordem. O botao no rodape desta janela copia",
-        "a unica function que vai na sua CaveBot de hunt.",
+        "Siga os passos na ordem. Os botoes de copiar ficam na aba",
+        "CAVEBOT do painel.",
     }},
     {"1 - ROTACAO  (aba CONFIG)", "#00FFFF", {
         "Escolha o tipo de rotacao:",
@@ -4331,17 +4333,21 @@ BossFarm.AJUDA = {
         "IR P/ BOSSES: nome da label que sai da cave pra fazer a rotacao.",
         "Pode deixar 'farmboss' (padrao) ou usar o nome que preferir.",
         "Na sua CaveBot de hunt:",
-        "  - COPIAR FUNCAO DO HORARIO (rodape): cole numa 'function'",
+        "  - COPIAR FUNCAO DO HORARIO (aba CAVEBOT): cole numa 'function'",
         "    junto com os outros checkins da hunt.",
         "  - Crie a label do IR P/ BOSSES com os goto que saem da cave",
         "    ate dentro da sala dos TPs.",
         "Pronto: o resto e automatico. Se a CaveBot cair na label do",
         "IR P/ BOSSES fora do horario, o painel nao deixa entrar no TP",
         "e manda ela de volta pra primeira label. Ao voltar pra hunt,",
-        "o painel desliga o Anti-TP e o Auto Party sozinho.",
-        "Opcional (caso precise): COPIAR TRAVA DO TP (rodape) e cole",
-        "numa 'function' logo antes de entrar no TP. Ela faz a mesma",
-        "trava na propria CaveBot, se a automatica falhar no seu bot.",
+        "o painel desliga o Anti-TP e o Auto Party sozinho (sem sair",
+        "da party: war, quest ou grupo continuam).",
+        "Opcional (caso precise), na aba CAVEBOT:",
+        "  - COPIAR TRAVA DO TP: cole numa 'function' logo antes de",
+        "    entrar no TP. Faz a mesma trava na propria CaveBot.",
+        "  - COPIAR INICIO CAVE: cole numa 'function' no inicio de todo",
+        "    o CaveBot. Desliga Anti-TP e Auto Party e SAI DA PARTY ao",
+        "    voltar pra hunt (o automatico do painel nao sai da party).",
         "VOLTAR CAVE: label da hunt pra onde ele volta no fim.",
         "So precisa no CaveBot UNICO.",
     }},
@@ -4376,12 +4382,6 @@ function BossFarm.abrirAjuda()
         local j = UI.createWindow("BossFarmAjudaWindow", g_ui.getRootWidget())
         BossFarm.janelaAjuda = j
         j.fechar.onClick = function() j:hide() end
-        j.copiarFuncao.onClick = function()
-            BossFarm.copiarTexto("return BossFarm.verificarHorario()", "Funcao do horario")
-        end
-        j.copiarTrava.onClick = function()
-            BossFarm.copiarTexto("return BossFarm.travaFarmboss()", "Trava do TP")
-        end
         for _, sec in ipairs(BossFarm.AJUDA) do
             local t = g_ui.createWidget("BossFarmAjudaTitulo", j.conteudo)
             t:setText(sec[1])
@@ -4403,6 +4403,18 @@ end
 if bossFarmWindow.copiarFuncaoButton then
     bossFarmWindow.copiarFuncaoButton.onClick = function()
         BossFarm.copiarTexto("return BossFarm.verificarHorario()", "Funcao do horario")
+    end
+end
+
+if bossFarmWindow.copiarTravaButton then
+    bossFarmWindow.copiarTravaButton.onClick = function()
+        BossFarm.copiarTexto("return BossFarm.travaFarmboss()", "Trava do TP")
+    end
+end
+
+if bossFarmWindow.copiarInicioButton then
+    bossFarmWindow.copiarInicioButton.onClick = function()
+        BossFarm.copiarTexto("BossFarm.desligarAntiTrap()\n\nreturn true", "Funcao do inicio da cave")
     end
 end
 
