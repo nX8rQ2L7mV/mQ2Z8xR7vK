@@ -1,6 +1,6 @@
 setDefaultTab("Main")
 BossFarm = BossFarm or {}
-BossFarm.VERSAO = "3.3"
+BossFarm.VERSAO = "3.4"
 
 if bossFarmWindow then
     bossFarmWindow:destroy()
@@ -3016,6 +3016,16 @@ BossFarmAjudaWindow < MainWindow
     height: 20
     color: #FFD700
 
+  BossFarmBtn
+    id: copiarTrava
+    text: COPIAR TRAVA DO TP
+    anchors.left: prev.right
+    anchors.bottom: parent.bottom
+    margin-left: 4
+    width: 150
+    height: 20
+    color: #FFA500
+
 
   BossFarmBtn
     id: fechar
@@ -4329,6 +4339,9 @@ BossFarm.AJUDA = {
         "IR P/ BOSSES fora do horario, o painel nao deixa entrar no TP",
         "e manda ela de volta pra primeira label. Ao voltar pra hunt,",
         "o painel desliga o Anti-TP e o Auto Party sozinho.",
+        "Opcional (caso precise): COPIAR TRAVA DO TP (rodape) e cole",
+        "numa 'function' logo antes de entrar no TP. Ela faz a mesma",
+        "trava na propria CaveBot, se a automatica falhar no seu bot.",
         "VOLTAR CAVE: label da hunt pra onde ele volta no fim.",
         "So precisa no CaveBot UNICO.",
     }},
@@ -4365,6 +4378,9 @@ function BossFarm.abrirAjuda()
         j.fechar.onClick = function() j:hide() end
         j.copiarFuncao.onClick = function()
             BossFarm.copiarTexto("return BossFarm.verificarHorario()", "Funcao do horario")
+        end
+        j.copiarTrava.onClick = function()
+            BossFarm.copiarTexto("return BossFarm.travaFarmboss()", "Trava do TP")
         end
         for _, sec in ipairs(BossFarm.AJUDA) do
             local t = g_ui.createWidget("BossFarmAjudaTitulo", j.conteudo)
