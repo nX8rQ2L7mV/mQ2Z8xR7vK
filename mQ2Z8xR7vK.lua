@@ -1,6 +1,6 @@
 setDefaultTab("Main")
 BossFarm = BossFarm or {}
-BossFarm.VERSAO = "4.1"
+BossFarm.VERSAO = "4.3"
 
 if bossFarmWindow then
     bossFarmWindow:destroy()
@@ -938,10 +938,22 @@ macro(1000, function()
     BossFarm.trocarCave(hunt)
 end)
 
+function BossFarm.labelDoBlocoAtual()
+    local lista = CaveBot and CaveBot.actionList
+    if not lista then return nil end
+    local atual = lista:getFocusedChild()
+    if not atual then return nil end
+    for i = lista:getChildIndex(atual), 1, -1 do
+        local child = lista:getChildByIndex(i)
+        if child and child.action == "label" then return child.value end
+    end
+    return nil
+end
+
 macro(250, function()
     if BossFarm.ativo.isOff() then return end
-    if not (CaveBot and CaveBot.lastReachedLabel and CaveBot.isOn and CaveBot.isOn()) then return end
-    local ok, ultima = pcall(CaveBot.lastReachedLabel)
+    if not (CaveBot and CaveBot.isOn and CaveBot.isOn()) then return end
+    local ok, ultima = pcall(BossFarm.labelDoBlocoAtual)
     if not ok or not ultima then return end
     local alvo = tostring((storage.BossFarmHorario and storage.BossFarmHorario.labelConfigurado) or "farmboss"):lower()
     if tostring(ultima):lower() ~= alvo then return end
@@ -2368,11 +2380,102 @@ function BossFarm.checarProximoCustom(bossAtual)
     end
 end
 
+BossFarm.historico = BossFarm.historico or {}
+BossFarm.HISTORICO_MAX = 500
+
+function BossFarm.contextoLog()
+    local p = player:getPosition()
+    local pos = p and (p.x .. "," .. p.y .. "," .. p.z) or "?"
+    local caveOn = CaveBot and CaveBot.isOn and CaveBot.isOn() and "ON" or "OFF"
+    local okB, bloco = pcall(BossFarm.labelDoBlocoAtual)
+    local passe = math.max(0, (BossFarm.passeAte or 0) - os.time())
+    local cfg = storage.BossFarmHorario or {}
+    return string.format("pos %s | cave %s %s | bloco %s | passe %ds | rotacao %s | estado %s",
+        pos, tostring(BossFarm.caveAtual()), caveOn, tostring(okB and bloco or "?"), passe,
+        cfg.rotacaoEmAndamento and "EM ANDAMENTO" or "parada", tostring(BossFarm.estado))
+end
+
+function BossFarm.registrarHistorico(texto)
+    local ok, ctx = pcall(BossFarm.contextoLog)
+    local h = BossFarm.historico
+    table.insert(h, os.date("%H:%M:%S") .. "  " .. texto .. "\n        " .. (ok and ctx or "?"))
+    if #h > BossFarm.HISTORICO_MAX then table.remove(h, 1) end
+    local j = BossFarm.janelaHistorico
+    if j and not j:isDestroyed() and j:isVisible() then BossFarm.atualizarHistorico() end
+end
+
 function BossFarm.logEvento(texto)
     BossFarm.ultimoEvento = texto
     BossFarm.ultimoEventoTime = os.date("%H:%M:%S")
     print("[Boss Farm] " .. texto)
+    BossFarm.registrarHistorico(texto)
 end
+
+function BossFarm.atualizarHistorico()
+    local j = BossFarm.janelaHistorico
+    if not j or j:isDestroyed() then return end
+    local linhas = {}
+    for i = #BossFarm.historico, 1, -1 do table.insert(linhas, BossFarm.historico[i]) end
+    j.texto:setText(#linhas > 0 and table.concat(linhas, "\n") or "Nenhum evento ainda.")
+    j.texto:setHeight(math.max(1, #linhas) * 28 + 4)
+end
+
+function BossFarm.abrirHistorico()
+    local j = BossFarm.janelaHistorico
+    if not j or j:isDestroyed() then
+        j = UI.createWindow("BossFarmAjudaWindow", g_ui.getRootWidget())
+        BossFarm.janelaHistorico = j
+        j:setText("Boss Farm - Log de eventos (Alt+5) - mais novo em cima")
+        j:setWidth(900)
+        j.fechar.onClick = function() j:hide() end
+        j.texto = g_ui.createWidget("BossFarmAjudaTexto", j.conteudo)
+    end
+    BossFarm.atualizarHistorico()
+    j:show()
+    j:raise()
+    j:focus()
+end
+
+onKeyDown(function(keys)
+    if keys == "Alt+5" then BossFarm.abrirHistorico() end
+end)
+
+BossFarm.vigiaLog = {}
+macro(500, function()
+    local v = BossFarm.vigiaLog
+    local estado = tostring(BossFarm.estado)
+    local estadoBase = estado:gsub("%d", "")
+    if estadoBase ~= v.estadoBase then
+        v.estadoBase = estadoBase
+        BossFarm.registrarHistorico("[estado] " .. estado)
+    end
+    local caveOn = (CaveBot and CaveBot.isOn and CaveBot.isOn()) and true or false
+    local perfil = tostring(BossFarm.caveAtual())
+    if caveOn ~= v.caveOn or perfil ~= v.perfil then
+        v.caveOn, v.perfil = caveOn, perfil
+        BossFarm.registrarHistorico("[cavebot] perfil " .. perfil .. (caveOn and " LIGADO" or " DESLIGADO"))
+    end
+    local lista = CaveBot and CaveBot.actionList
+    local foco = lista and lista:getFocusedChild()
+    if foco ~= v.foco then
+        v.foco = foco
+        local ok, bloco = pcall(BossFarm.labelDoBlocoAtual)
+        bloco = tostring(ok and bloco or "?")
+        if bloco ~= v.bloco then
+            v.bloco = bloco
+            local linha = foco and (lista:getChildIndex(foco) .. ": " .. tostring(foco:getText())) or "-"
+            BossFarm.registrarHistorico("[bloco] entrou no bloco '" .. bloco .. "' (linha " .. linha .. ")")
+        end
+    end
+end)
+
+onPlayerPositionChange(function(novaPos, antigaPos)
+    if not (novaPos and antigaPos) then return end
+    if novaPos.z ~= antigaPos.z or math.abs(novaPos.x - antigaPos.x) > 3 or math.abs(novaPos.y - antigaPos.y) > 3 then
+        BossFarm.registrarHistorico(string.format("[teleporte] %d,%d,%d -> %d,%d,%d",
+            antigaPos.x, antigaPos.y, antigaPos.z, novaPos.x, novaPos.y, novaPos.z))
+    end
+end)
 
 
 function BossFarm.setCurrent(boss)
