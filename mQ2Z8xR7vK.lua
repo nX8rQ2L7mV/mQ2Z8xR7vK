@@ -1,6 +1,6 @@
 setDefaultTab("Main")
 BossFarm = BossFarm or {}
-BossFarm.VERSAO = "4.0"
+BossFarm.VERSAO = "4.1"
 
 if bossFarmWindow then
     bossFarmWindow:destroy()
@@ -1148,7 +1148,7 @@ function BossFarm.noLobby(p)
     return p and p.z == 3 and p.x >= 7610 and p.x <= 7700 and p.y >= 1020 and p.y <= 1084
 end
 
-macro(1000, function()
+function BossFarm.verificarLobby()
     if BossFarm.ativo.isOff() then return end
 
     local myPos = player:getPosition()
@@ -1194,12 +1194,18 @@ macro(1000, function()
             BossFarm.irPara("start")
         end
     end
+end
+
+macro(1000, BossFarm.verificarLobby)
+onPlayerPositionChange(function(novaPos, antigaPos)
+    if BossFarm.noLobby(novaPos) then BossFarm.verificarLobby() end
 end)
 
 macro(1000, function()
     if BossFarm.ativo.isOff() then return end
     if not storage.BossAntiTrapTPEnabled then return end
     if BossFarm.modoSeparado() and BossFarm.caveAtual() ~= BossFarm.caveBoss() then return end
+    if os.time() <= (BossFarm.passeAte or 0) then return end
 
     local myPos = player:getPosition()
     if not myPos then return end
