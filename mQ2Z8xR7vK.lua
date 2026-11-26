@@ -1,6 +1,6 @@
 setDefaultTab("Main")
 BossFarm = BossFarm or {}
-BossFarm.VERSAO = "4.5"
+BossFarm.VERSAO = "4.9"
 
 if bossFarmWindow then
     bossFarmWindow:destroy()
@@ -1120,7 +1120,13 @@ function BossFarm.primeiraLabel()
 end
 
 function BossFarm.travaFarmboss()
-    if os.time() <= (BossFarm.passeAte or 0) then return true end
+    if os.time() <= (BossFarm.passeAte or 0) then
+        if os.time() - (BossFarm.travaLiberouEm or 0) >= 60 then
+            BossFarm.travaLiberouEm = os.time()
+            BossFarm.registrarHistorico("Trava do TP: liberado (com passe " .. (BossFarm.passeAte - os.time()) .. "s)")
+        end
+        return true
+    end
     BossFarm.estado = "FARMBOSS SEM PASSE"
     local volta = BossFarm.primeiraLabel()
     if volta and CaveBot.gotoLabel(volta) then
@@ -1170,9 +1176,14 @@ function BossFarm.verificarLobby()
     if not myPos then return end
 
     local inBossArea = BossFarm.noLobby(myPos)
+    if not BossFarm.naZonaBoss(myPos) then BossFarm.avisouLobby = false end
 
     if inBossArea then
         local comPasse = os.time() <= (BossFarm.passeAte or 0)
+        if not BossFarm.avisouLobby then
+            BossFarm.avisouLobby = true
+            BossFarm.registrarHistorico("Chegou na sala dos TPs " .. (comPasse and "com passe de horario" or "SEM passe de horario") .. " (CaveBot '" .. tostring(BossFarm.caveAtual()) .. "')")
+        end
         BossFarm.passeAte = 0
         if comPasse then BossFarm.chegadaAutorizadaAte = os.time() + 30 end
         if comPasse and BossFarm.modoSeparado() and BossFarm.caveAtual() ~= BossFarm.caveBoss() then
@@ -2471,6 +2482,7 @@ end
 function BossFarm.logEvento(texto)
     BossFarm.ultimoEvento = texto
     BossFarm.ultimoEventoTime = os.date("%H:%M:%S")
+    BossFarm.ultimoEventoMs = g_clock.millis()
     print("[Boss Farm] " .. texto)
     BossFarm.registrarHistorico(texto)
 end
@@ -2483,10 +2495,11 @@ function BossFarm.corEvento(texto)
         end
         return false
     end
-    if tem("erro", "nao existe", "perdid", "travad", "sem caminho", "parado ha", "sem horario", "sem passe", "abortado") then return "#FF5555" end
+    if tem("erro", "nao existe", "perdid", "travad", "sem caminho", "parado ha", "sem horario", "sem passe", "abortado", "sem chegar") then return "#FF5555" end
     if tem("pulou", "ocupado", "ignorado", "nao entrou", "alerta", "afk", "vigia", "incompleto") then return "#FFA040" end
     if tem("checkin leu") then return "#FFD700" end
-    if tem("derrotado", "trocado", "atingido", "engatando", "chegou", "concluid", "entrada detectada", "efetuada", "reunido") then return "#55DD55" end
+    if tem("derrotado", "trocado", "atingido", "engatando", "chegou", "concluid", "entrada detectada", "efetuada", "reunido", "com passe", "liberado") then return "#55DD55" end
+    if tem("leu a label", "lobby (espera") then return "#80C8FF" end
     return "#DDDDDD"
 end
 
@@ -2725,26 +2738,97 @@ function BossFarm.verificarHorario(...)
     local resultado = verificarHorarioOriginal(...)
     local estado = tostring(BossFarm.estado)
     local base = estado:gsub("%d", "")
-    if base ~= BossFarm.ultimoEstadoCheckin then
+    if base ~= BossFarm.ultimoEstadoCheckin or os.time() - (BossFarm.ultimoCheckinLogEm or 0) >= 300 then
         BossFarm.ultimoEstadoCheckin = base
+        BossFarm.ultimoCheckinLogEm = os.time()
         BossFarm.registrarHistorico("Checkin leu: " .. estado)
     end
     return resultado
 end
 
+local aguardarMinuto27Original = BossFarm.aguardarMinuto27
+function BossFarm.aguardarMinuto27(...)
+    local resultado = aguardarMinuto27Original(...)
+    local estado = tostring(BossFarm.estado)
+    local base = estado:gsub("%d", "")
+    if base ~= BossFarm.ultimoEstadoEspera then
+        BossFarm.ultimoEstadoEspera = base
+        BossFarm.registrarHistorico("Lobby (espera antes de comecar): " .. estado)
+    end
+    return resultado
+end
+
+function BossFarm.alvoFarmboss()
+    return tostring((storage.BossFarmHorario and storage.BossFarmHorario.labelConfigurado) or "farmboss"):lower()
+end
+
+function BossFarm.ehDoFarmboss(bloco)
+    if BossFarm.modoSeparado() and BossFarm.caveAtual() == BossFarm.caveBoss() then return true end
+    local b = tostring(bloco):lower()
+    return b == BossFarm.alvoFarmboss() or BossFarm.labelDaRota(b)
+end
+
+function BossFarm.motivoSaida(d)
+    if d.iFoi == 1 and d.iSaiu == d.total then
+        return "a lista do CaveBot ACABOU na linha " .. d.iSaiu .. " (" .. d.textoSaiu .. ") e ele voltou pra linha 1. Falta caminho no farmboss ate as salas."
+    end
+    if g_clock.millis() - (BossFarm.ultimoEventoMs or 0) <= 500 then
+        return "o painel mandou (" .. tostring(BossFarm.ultimoEvento) .. ")"
+    end
+    if d.acaoSaiu == "gotolabel" then
+        return "o comando da linha " .. d.iSaiu .. " (" .. d.textoSaiu .. ") mandou."
+    end
+    if d.acaoSaiu == "function" then
+        return "a function da linha " .. d.iSaiu .. " (" .. d.textoSaiu .. ") mandou."
+    end
+    return "o CaveBot pulou sozinho (perdido sem caminho, ligado longe ou clique na lista)."
+end
+
 function BossFarm.focoDaRotaMudou(lista, novo, antigo)
-    if not (novo and antigo) or novo.action == "label" then return end
+    if not (novo and antigo) then return end
     if not (CaveBot and CaveBot.isOn and CaveBot.isOn()) then return end
+    local iSaiu, iFoi = lista:getChildIndex(antigo), lista:getChildIndex(novo)
+    if iSaiu > 0 and iFoi > 0 then
+        local saiuDe = tostring(BossFarm.labelDaLinha(lista, iSaiu) or "-"):lower()
+        local foiPara = tostring(BossFarm.labelDaLinha(lista, iFoi) or "-")
+        if saiuDe == BossFarm.alvoFarmboss() and not BossFarm.ehDoFarmboss(foiPara) then
+            local d = {iSaiu = iSaiu, iFoi = iFoi, total = lista:getChildCount(), acaoSaiu = antigo.action,
+                textoSaiu = tostring(antigo:getText()), textoFoi = tostring(novo:getText()), foiPara = foiPara}
+            schedule(100, function()
+                BossFarm.registrarHistorico("Saiu do farmboss SEM chegar nas salas: foi pro bloco '" .. d.foiPara .. "' (linha " .. d.iFoi .. ": " .. d.textoFoi .. "). Motivo: " .. BossFarm.motivoSaida(d))
+            end)
+        end
+    end
+    if novo.action == "label" then
+        if BossFarm.ehDoFarmboss(novo.value) then
+            local texto = "Leu a label '" .. tostring(novo.value) .. "' (linha " .. lista:getChildIndex(novo) .. ")"
+            if tostring(novo.value):lower() == BossFarm.alvoFarmboss() then
+                local passe = math.max(0, (BossFarm.passeAte or 0) - os.time())
+                texto = texto .. (passe > 0 and (" com passe " .. passe .. "s") or " SEM passe de horario")
+            end
+            BossFarm.registrarHistorico(texto)
+        end
+        return
+    end
     local iNovo, iAntigo = lista:getChildIndex(novo), lista:getChildIndex(antigo)
     if iNovo <= 0 or iAntigo <= 0 or iNovo == iAntigo + 1 or iNovo == 1 then return end
     local deBloco = tostring(BossFarm.labelDaLinha(lista, iAntigo) or "-")
     local paraBloco = tostring(BossFarm.labelDaLinha(lista, iNovo) or "-")
+    if not (BossFarm.ehDoFarmboss(deBloco) or BossFarm.ehDoFarmboss(paraBloco)) then return end
     if iNovo == iAntigo - 1 then
         BossFarm.registrarHistorico("Rota sem caminho: repetindo a linha " .. iAntigo .. " (" .. tostring(antigo:getText()) .. ") no bloco '" .. deBloco .. "'")
     else
         BossFarm.registrarHistorico("Rota pulou: linha " .. iAntigo .. " (bloco '" .. deBloco .. "') -> linha " .. iNovo .. " " .. tostring(novo:getText()) .. " (bloco '" .. paraBloco .. "')")
     end
 end
+
+macro(1000, function()
+    local ate = BossFarm.passeAte or 0
+    if ate > 0 and os.time() > ate and BossFarm.passeAvisadoAte ~= ate then
+        BossFarm.passeAvisadoAte = ate
+        BossFarm.registrarHistorico("Passe de horario ACABOU (10 min) sem chegar na sala dos TPs: a rotacao nao comecou.")
+    end
+end)
 
 if CaveBot and CaveBot.actionList then
     modules.game_bot.connect(CaveBot.actionList, {
@@ -2763,6 +2847,8 @@ macro(1000, function()
     end
     if not BossFarm.paradoAvisou and os.time() - BossFarm.paradoDesde >= 30 then
         BossFarm.paradoAvisou = true
+        local okB, bloco = pcall(BossFarm.labelDoBlocoAtual)
+        if not (BossFarm.naZonaBoss(p) or BossFarm.ehDoFarmboss(okB and bloco or "-")) then return end
         BossFarm.registrarHistorico("Parado ha 30s no mesmo sqm com o CaveBot ligado (estado: " .. tostring(BossFarm.estado) .. ")")
     end
 end)
