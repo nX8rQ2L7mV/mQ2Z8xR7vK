@@ -1,6 +1,6 @@
 setDefaultTab("Main")
 BossFarm = BossFarm or {}
-BossFarm.VERSAO = "4.3"
+BossFarm.VERSAO = "4.5"
 
 if bossFarmWindow then
     bossFarmWindow:destroy()
@@ -207,7 +207,10 @@ function BossFarm.irPara(label)
             end
         end
     end
-    CaveBot.gotoLabel(label)
+    if not CaveBot.gotoLabel(label) and os.time() - (BossFarm.avisoLabelEm or 0) >= 5 then
+        BossFarm.avisoLabelEm = os.time()
+        BossFarm.logEvento("Label '" .. tostring(label) .. "' NAO existe no CaveBot '" .. tostring(BossFarm.caveAtual()) .. "': nao foi pra label.")
+    end
 end
 
 BossFarm.CAVE_BOSS = "farmboss"
@@ -2380,28 +2383,89 @@ function BossFarm.checarProximoCustom(bossAtual)
     end
 end
 
-BossFarm.historico = BossFarm.historico or {}
-BossFarm.HISTORICO_MAX = 500
+BossFarm.HISTORICO_MAX = 300
+
+function BossFarm.labelDaLinha(lista, indice)
+    for i = indice, 1, -1 do
+        local child = lista:getChildByIndex(i)
+        if child and child.action == "label" then return child.value end
+    end
+    return nil
+end
 
 function BossFarm.contextoLog()
     local p = player:getPosition()
-    local pos = p and (p.x .. "," .. p.y .. "," .. p.z) or "?"
-    local caveOn = CaveBot and CaveBot.isOn and CaveBot.isOn() and "ON" or "OFF"
-    local okB, bloco = pcall(BossFarm.labelDoBlocoAtual)
-    local passe = math.max(0, (BossFarm.passeAte or 0) - os.time())
-    local cfg = storage.BossFarmHorario or {}
-    return string.format("pos %s | cave %s %s | bloco %s | passe %ds | rotacao %s | estado %s",
-        pos, tostring(BossFarm.caveAtual()), caveOn, tostring(okB and bloco or "?"), passe,
-        cfg.rotacaoEmAndamento and "EM ANDAMENTO" or "parada", tostring(BossFarm.estado))
+    local lista = CaveBot and CaveBot.actionList
+    local foco = lista and lista:getFocusedChild()
+    local linha = foco and lista:getChildIndex(foco) or nil
+    return string.format("pos %s | cave %s | bloco %s | linha %s",
+        p and (p.x .. "," .. p.y .. "," .. p.z) or "?", tostring(BossFarm.caveAtual()),
+        tostring(linha and BossFarm.labelDaLinha(lista, linha) or "-"), tostring(linha or "-"))
 end
 
-function BossFarm.registrarHistorico(texto)
-    local ok, ctx = pcall(BossFarm.contextoLog)
-    local h = BossFarm.historico
-    table.insert(h, os.date("%H:%M:%S") .. "  " .. texto .. "\n        " .. (ok and ctx or "?"))
-    if #h > BossFarm.HISTORICO_MAX then table.remove(h, 1) end
+BossFarm.VIRADA_LOG = 6 * 60 + 5
+
+function BossFarm.diaDoLog()
+    return os.date("%Y-%m-%d", os.time() - BossFarm.VIRADA_LOG * 60)
+end
+
+function BossFarm.arquivoLog()
+    local arq = BossFarm.arquivoConfig()
+    return arq and (arq:gsub("%.json$", "_log.json")) or nil
+end
+
+function BossFarm.carregarLog()
+    BossFarm.historico = {}
+    BossFarm.diaLog = BossFarm.diaDoLog()
+    local arq = BossFarm.arquivoLog()
+    if not (arq and g_resources and g_resources.fileExists and g_resources.fileExists(arq)) then return end
+    local ok, dados = pcall(function() return json.decode(g_resources.readFileContents(arq)) end)
+    if ok and type(dados) == "table" and dados.dia == BossFarm.diaLog and type(dados.eventos) == "table" then
+        BossFarm.historico = dados.eventos
+    end
+end
+
+function BossFarm.salvarLog()
+    if not BossFarm.logMudou then return end
+    local arq = BossFarm.arquivoLog()
+    if not (arq and g_resources and g_resources.writeFileContents) then return end
+    if g_resources.makeDir and g_resources.directoryExists and not g_resources.directoryExists("/BossFarm") then
+        pcall(g_resources.makeDir, "/BossFarm")
+    end
+    local ok, txt = pcall(json.encode, {dia = BossFarm.diaLog, eventos = BossFarm.historico})
+    if ok and pcall(g_resources.writeFileContents, arq, txt) then BossFarm.logMudou = false end
+end
+
+function BossFarm.virarDiaLog()
+    local dia = BossFarm.diaDoLog()
+    if dia == BossFarm.diaLog then return end
+    BossFarm.diaLog = dia
+    BossFarm.historico = {}
+    BossFarm.logMudou = true
     local j = BossFarm.janelaHistorico
-    if j and not j:isDestroyed() and j:isVisible() then BossFarm.atualizarHistorico() end
+    local lista = j and not j:isDestroyed() and j:recursiveGetChildById("lista")
+    if lista then lista:destroyChildren() end
+end
+
+pcall(BossFarm.carregarLog)
+macro(5000, function()
+    BossFarm.virarDiaLog()
+    BossFarm.salvarLog()
+end)
+
+function BossFarm.registrarHistorico(texto)
+    BossFarm.virarDiaLog()
+    local agora = os.time()
+    if texto == BossFarm.ultimoHistorico and agora - (BossFarm.ultimoHistoricoEm or 0) < 10 then return end
+    BossFarm.ultimoHistorico, BossFarm.ultimoHistoricoEm = texto, agora
+    local ok, ctx = pcall(BossFarm.contextoLog)
+    local e = {hora = os.date("%H:%M:%S"), texto = texto, ctx = ok and ctx or "?"}
+    local h = BossFarm.historico
+    table.insert(h, e)
+    if #h > BossFarm.HISTORICO_MAX then table.remove(h, 1) end
+    BossFarm.logMudou = true
+    local j = BossFarm.janelaHistorico
+    if j and not j:isDestroyed() and j:isVisible() then BossFarm.criarLinhaLog(e, true) end
 end
 
 function BossFarm.logEvento(texto)
@@ -2411,72 +2475,297 @@ function BossFarm.logEvento(texto)
     BossFarm.registrarHistorico(texto)
 end
 
-function BossFarm.atualizarHistorico()
+function BossFarm.corEvento(texto)
+    local s = tostring(texto):lower()
+    local function tem(...)
+        for _, p in ipairs({...}) do
+            if s:find(p, 1, true) then return true end
+        end
+        return false
+    end
+    if tem("erro", "nao existe", "perdid", "travad", "sem caminho", "parado ha", "sem horario", "sem passe", "abortado") then return "#FF5555" end
+    if tem("pulou", "ocupado", "ignorado", "nao entrou", "alerta", "afk", "vigia", "incompleto") then return "#FFA040" end
+    if tem("checkin leu") then return "#FFD700" end
+    if tem("derrotado", "trocado", "atingido", "engatando", "chegou", "concluid", "entrada detectada", "efetuada", "reunido") then return "#55DD55" end
+    return "#DDDDDD"
+end
+
+BossFarm.ESTILO_LOG = [[
+BFLBox < Panel
+  border-width: 1
+  border-color: #4a4a4a
+  background-color: #00000066
+  padding: 5
+
+BFLTitulo < Label
+  anchors.top: parent.top
+  anchors.left: parent.left
+  anchors.right: parent.right
+  height: 14
+  font: verdana-11px-rounded
+  color: #FFD700
+
+BFLRot < Label
+  anchors.left: parent.left
+  anchors.top: prev.bottom
+  margin-top: 3
+  width: 80
+  height: 14
+  font: verdana-11px-rounded
+  color: #9A9A9A
+  text-auto-resize: false
+
+BFLVal < Label
+  anchors.left: prev.right
+  anchors.right: parent.right
+  anchors.top: prev.top
+  height: 14
+  font: verdana-11px-rounded
+  color: #FFFFFF
+  text-auto-resize: false
+
+BFLEvento < Label
+  height: 14
+  font: verdana-11px-rounded
+  text-auto-resize: false
+
+BFLJanela < MainWindow
+  text: Boss Farm - Log (Alt+5)
+  size: 760 560
+  @onEscape: self:hide()
+
+  BFLBox
+    id: boxAgora
+    anchors.top: parent.top
+    anchors.left: parent.left
+    anchors.right: parent.horizontalCenter
+    margin-right: 3
+    height: 102
+    BFLTitulo
+      text: AGORA
+    BFLRot
+      text: Estado
+      margin-top: 4
+    BFLVal
+      id: vEstado
+    BFLRot
+      text: CaveBot
+    BFLVal
+      id: vCave
+    BFLRot
+      text: Rota
+    BFLVal
+      id: vRota
+    BFLRot
+      text: Passe
+    BFLVal
+      id: vPasse
+    BFLRot
+      text: Posicao
+    BFLVal
+      id: vPos
+
+  BFLBox
+    id: boxHoje
+    anchors.top: parent.top
+    anchors.left: parent.horizontalCenter
+    anchors.right: parent.right
+    margin-left: 3
+    height: 102
+    BFLTitulo
+      text: ROTACOES DE HOJE
+    BFLRot
+      text: Modo
+      margin-top: 4
+    BFLVal
+      id: vModo
+    BFLRot
+      text: Rotacao 1
+    BFLVal
+      id: vRot1
+    BFLRot
+      text: Rotacao 2
+    BFLVal
+      id: vRot2
+    BFLRot
+      text: Rotacao 3
+    BFLVal
+      id: vRot3
+    BFLRot
+      text: Boss atual
+    BFLVal
+      id: vBoss
+
+  BFLBox
+    id: boxEventos
+    anchors.top: boxAgora.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    anchors.bottom: fechar.top
+    margin-top: 6
+    margin-bottom: 6
+    BFLTitulo
+      text: EVENTOS DE HOJE (mais novo em cima - mouse na linha mostra onde estava - apaga as 06:05)
+    ScrollablePanel
+      id: lista
+      anchors.top: prev.bottom
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.bottom: parent.bottom
+      margin-top: 4
+      margin-right: 14
+      vertical-scrollbar: listaScroll
+      layout:
+        type: verticalBox
+    VerticalScrollBar
+      id: listaScroll
+      anchors.top: lista.top
+      anchors.bottom: lista.bottom
+      anchors.right: parent.right
+      step: 28
+      pixels-scroll: true
+
+  BossFarmBtn
+    id: fechar
+    text: FECHAR
+    anchors.right: parent.right
+    anchors.bottom: parent.bottom
+    width: 80
+    height: 20
+]]
+
+function BossFarm.criarLinhaLog(e, noTopo)
     local j = BossFarm.janelaHistorico
-    if not j or j:isDestroyed() then return end
-    local linhas = {}
-    for i = #BossFarm.historico, 1, -1 do table.insert(linhas, BossFarm.historico[i]) end
-    j.texto:setText(#linhas > 0 and table.concat(linhas, "\n") or "Nenhum evento ainda.")
-    j.texto:setHeight(math.max(1, #linhas) * 28 + 4)
+    local lista = j and j:recursiveGetChildById("lista")
+    if not lista then return end
+    local w = g_ui.createWidget("BFLEvento", lista)
+    w:setText(tostring(e.hora) .. "   " .. tostring(e.texto))
+    w:setColor(BossFarm.corEvento(e.texto))
+    w:setTooltip(tostring(e.texto) .. "\n" .. tostring(e.ctx))
+    if noTopo then lista:moveChildToIndex(w, 1) end
+    while lista:getChildCount() > BossFarm.HISTORICO_MAX do
+        lista:getLastChild():destroy()
+    end
+end
+
+function BossFarm.textoRotacao(i)
+    local cfg = storage.BossFarmHorario or {}
+    local hora = (cfg.horariosConfigurados or {})[i]
+    if not hora or hora == "" then return "-", "#9A9A9A" end
+    if cfg.rotacoesAtivas and cfg.rotacoesAtivas[i] == false then return hora .. "   DESATIVADA", "#9A9A9A" end
+    if cfg.rotacaoEmAndamento and cfg.indiceRotacaoAtual == i then return hora .. "   EM ANDAMENTO", "#FFD700" end
+    local ok, usado = pcall(BossFarm.slotUsado, i)
+    if ok and usado then
+        if cfg.janelasPerdidas and cfg.janelasPerdidas[i] then return hora .. "   PERDIDA HOJE", "#FF5555" end
+        return hora .. "   FEITA HOJE", "#55DD55"
+    end
+    return hora .. "   AGUARDANDO", "#FFFFFF"
+end
+
+function BossFarm.atualizarResumoLog()
+    local j = BossFarm.janelaHistorico
+    if not j or j:isDestroyed() or not j:isVisible() then return end
+    local function val(id, texto, cor)
+        local w = j:recursiveGetChildById(id)
+        if w then
+            w:setText(tostring(texto))
+            w:setColor(cor or "#FFFFFF")
+        end
+    end
+    local p = player:getPosition()
+    local lista = CaveBot and CaveBot.actionList
+    local foco = lista and lista:getFocusedChild()
+    local linha = foco and lista:getChildIndex(foco) or nil
+    local caveOn = CaveBot and CaveBot.isOn and CaveBot.isOn()
+    local passe = math.max(0, (BossFarm.passeAte or 0) - os.time())
+    val("vEstado", BossFarm.estado or "-", "#FFD700")
+    val("vCave", tostring(BossFarm.caveAtual()) .. (caveOn and "   LIGADO" or "   DESLIGADO"), caveOn and "#55DD55" or "#FF5555")
+    val("vRota", linha and ("bloco '" .. tostring(BossFarm.labelDaLinha(lista, linha) or "-") .. "'   linha " .. linha) or "-")
+    val("vPasse", passe > 0 and (passe .. "s restantes") or "sem passe", passe > 0 and "#55DD55" or "#9A9A9A")
+    val("vPos", p and (p.x .. ", " .. p.y .. ", " .. p.z) or "-")
+    local modos = {SCHEDULE = "PADRAO (3 horarios)", ONCE = "GRATIS (1x)", LOOP = "LOOP"}
+    val("vModo", (modos[storage.BossFarmExecutionMode] or tostring(storage.BossFarmExecutionMode)) .. "   |   " .. (BossFarm.modoSeparado() and "SEPARADO" or "UNICO"))
+    for i = 1, 3 do
+        local texto, cor = BossFarm.textoRotacao(i)
+        val("vRot" .. i, texto, cor)
+    end
+    local b = BossFarm.currentBoss
+    val("vBoss", b and (b .. " - " .. tostring(BossFarm.nome and BossFarm.nome[b] or "?")) or "-")
 end
 
 function BossFarm.abrirHistorico()
     local j = BossFarm.janelaHistorico
     if not j or j:isDestroyed() then
-        j = UI.createWindow("BossFarmAjudaWindow", g_ui.getRootWidget())
+        if not BossFarm.estiloLogCarregado then
+            g_ui.importStyleFromString(BossFarm.ESTILO_LOG)
+            BossFarm.estiloLogCarregado = true
+        end
+        j = UI.createWindow("BFLJanela", g_ui.getRootWidget())
         BossFarm.janelaHistorico = j
-        j:setText("Boss Farm - Log de eventos (Alt+5) - mais novo em cima")
-        j:setWidth(900)
-        j.fechar.onClick = function() j:hide() end
-        j.texto = g_ui.createWidget("BossFarmAjudaTexto", j.conteudo)
+        j:recursiveGetChildById("fechar").onClick = function() j:hide() end
     end
-    BossFarm.atualizarHistorico()
+    BossFarm.virarDiaLog()
+    local lista = j:recursiveGetChildById("lista")
+    lista:destroyChildren()
+    for i = #BossFarm.historico, 1, -1 do BossFarm.criarLinhaLog(BossFarm.historico[i], false) end
     j:show()
     j:raise()
     j:focus()
+    BossFarm.atualizarResumoLog()
 end
+
+macro(1000, function() BossFarm.atualizarResumoLog() end)
 
 onKeyDown(function(keys)
     if keys == "Alt+5" then BossFarm.abrirHistorico() end
 end)
 
-BossFarm.vigiaLog = {}
-macro(500, function()
-    local v = BossFarm.vigiaLog
+local verificarHorarioOriginal = BossFarm.verificarHorario
+function BossFarm.verificarHorario(...)
+    local resultado = verificarHorarioOriginal(...)
     local estado = tostring(BossFarm.estado)
-    local estadoBase = estado:gsub("%d", "")
-    if estadoBase ~= v.estadoBase then
-        v.estadoBase = estadoBase
-        BossFarm.registrarHistorico("[estado] " .. estado)
+    local base = estado:gsub("%d", "")
+    if base ~= BossFarm.ultimoEstadoCheckin then
+        BossFarm.ultimoEstadoCheckin = base
+        BossFarm.registrarHistorico("Checkin leu: " .. estado)
     end
-    local caveOn = (CaveBot and CaveBot.isOn and CaveBot.isOn()) and true or false
-    local perfil = tostring(BossFarm.caveAtual())
-    if caveOn ~= v.caveOn or perfil ~= v.perfil then
-        v.caveOn, v.perfil = caveOn, perfil
-        BossFarm.registrarHistorico("[cavebot] perfil " .. perfil .. (caveOn and " LIGADO" or " DESLIGADO"))
+    return resultado
+end
+
+function BossFarm.focoDaRotaMudou(lista, novo, antigo)
+    if not (novo and antigo) or novo.action == "label" then return end
+    if not (CaveBot and CaveBot.isOn and CaveBot.isOn()) then return end
+    local iNovo, iAntigo = lista:getChildIndex(novo), lista:getChildIndex(antigo)
+    if iNovo <= 0 or iAntigo <= 0 or iNovo == iAntigo + 1 or iNovo == 1 then return end
+    local deBloco = tostring(BossFarm.labelDaLinha(lista, iAntigo) or "-")
+    local paraBloco = tostring(BossFarm.labelDaLinha(lista, iNovo) or "-")
+    if iNovo == iAntigo - 1 then
+        BossFarm.registrarHistorico("Rota sem caminho: repetindo a linha " .. iAntigo .. " (" .. tostring(antigo:getText()) .. ") no bloco '" .. deBloco .. "'")
+    else
+        BossFarm.registrarHistorico("Rota pulou: linha " .. iAntigo .. " (bloco '" .. deBloco .. "') -> linha " .. iNovo .. " " .. tostring(novo:getText()) .. " (bloco '" .. paraBloco .. "')")
     end
-    local lista = CaveBot and CaveBot.actionList
-    local foco = lista and lista:getFocusedChild()
-    if foco ~= v.foco then
-        v.foco = foco
-        local ok, bloco = pcall(BossFarm.labelDoBlocoAtual)
-        bloco = tostring(ok and bloco or "?")
-        if bloco ~= v.bloco then
-            v.bloco = bloco
-            local linha = foco and (lista:getChildIndex(foco) .. ": " .. tostring(foco:getText())) or "-"
-            BossFarm.registrarHistorico("[bloco] entrou no bloco '" .. bloco .. "' (linha " .. linha .. ")")
-        end
+end
+
+if CaveBot and CaveBot.actionList then
+    modules.game_bot.connect(CaveBot.actionList, {
+        onChildFocusChange = function(lista, novo, antigo) pcall(BossFarm.focoDaRotaMudou, lista, novo, antigo) end
+    })
+end
+
+macro(1000, function()
+    if not (CaveBot and CaveBot.isOn and CaveBot.isOn()) then BossFarm.paradoPos = nil return end
+    local p = player:getPosition()
+    if not p then return end
+    local chave = p.x .. "," .. p.y .. "," .. p.z
+    if chave ~= BossFarm.paradoPos or g_game.isAttacking() then
+        BossFarm.paradoPos, BossFarm.paradoDesde, BossFarm.paradoAvisou = chave, os.time(), false
+        return
+    end
+    if not BossFarm.paradoAvisou and os.time() - BossFarm.paradoDesde >= 30 then
+        BossFarm.paradoAvisou = true
+        BossFarm.registrarHistorico("Parado ha 30s no mesmo sqm com o CaveBot ligado (estado: " .. tostring(BossFarm.estado) .. ")")
     end
 end)
-
-onPlayerPositionChange(function(novaPos, antigaPos)
-    if not (novaPos and antigaPos) then return end
-    if novaPos.z ~= antigaPos.z or math.abs(novaPos.x - antigaPos.x) > 3 or math.abs(novaPos.y - antigaPos.y) > 3 then
-        BossFarm.registrarHistorico(string.format("[teleporte] %d,%d,%d -> %d,%d,%d",
-            antigaPos.x, antigaPos.y, antigaPos.z, novaPos.x, novaPos.y, novaPos.z))
-    end
-end)
-
 
 function BossFarm.setCurrent(boss)
     if BossFarm.currentBoss ~= boss then
