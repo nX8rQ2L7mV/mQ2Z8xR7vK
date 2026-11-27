@@ -1,6 +1,6 @@
 setDefaultTab("Main")
 BossFarm = BossFarm or {}
-BossFarm.VERSAO = "4.9"
+BossFarm.VERSAO = "5.0"
 
 if bossFarmWindow then
     bossFarmWindow:destroy()
@@ -2482,7 +2482,7 @@ end
 function BossFarm.logEvento(texto)
     BossFarm.ultimoEvento = texto
     BossFarm.ultimoEventoTime = os.date("%H:%M:%S")
-    BossFarm.ultimoEventoMs = g_clock.millis()
+    BossFarm.ultimoEventoEm = os.time()
     print("[Boss Farm] " .. texto)
     BossFarm.registrarHistorico(texto)
 end
@@ -2772,7 +2772,7 @@ function BossFarm.motivoSaida(d)
     if d.iFoi == 1 and d.iSaiu == d.total then
         return "a lista do CaveBot ACABOU na linha " .. d.iSaiu .. " (" .. d.textoSaiu .. ") e ele voltou pra linha 1. Falta caminho no farmboss ate as salas."
     end
-    if g_clock.millis() - (BossFarm.ultimoEventoMs or 0) <= 500 then
+    if os.time() - (BossFarm.ultimoEventoEm or 0) <= 1 then
         return "o painel mandou (" .. tostring(BossFarm.ultimoEvento) .. ")"
     end
     if d.acaoSaiu == "gotolabel" then
